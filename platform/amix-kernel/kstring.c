@@ -143,4 +143,26 @@ int memcmp(a, b, n)
     return 0;
 }
 
+#if defined(CDFS_MODULE)
+/*
+ * strncpy — the loadable-module form only. The kernel has a strncpy, so the
+ * static object leaves it undefined for the kernel link; but it is not one of
+ * the names a module may import (the module DDI), so the module carries its
+ * own. Standard semantics: copy up to n bytes, then pad with NULs to n.
+ */
+char *strncpy(dst, src, n)
+    char *dst;
+    const char *src;
+    size_t n;
+{
+    size_t i;
+
+    for (i = 0; i < n && src[i] != '\0'; i++)
+        dst[i] = src[i];
+    for (; i < n; i++)
+        dst[i] = '\0';
+    return dst;
+}
+#endif /* CDFS_MODULE */
+
 #endif /* ODFS_PLATFORM_AMIX_KERNEL */

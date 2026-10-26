@@ -54,7 +54,7 @@
  */
 #include <sys/types.h>   /* caddr_t, paddr_t, uint (typedef) */
 #include <sys/param.h>   /* PRIBIO                           */
-#include <sys/immu.h>    /* NBPP (2048) — the DMA page-cross invariant */
+#include <sys/immu.h>    /* NBPP: 2048 (68030) or 4096 (68040/060) */
 #include <sys/cmn_err.h> /* cmn_err, CE_WARN                 */
 #include <sys/inline.h>  /* _spl0/_spl2 inlines + spl0/spl2 macros   */
 
@@ -82,6 +82,18 @@
  * one-block sdcoms. Raise this only once the HBA DMA limit is known good.
  */
 #define AMIX_KERN_MAX_XFER AMIX_KERN_CD_SECTOR_SIZE
+
+/*
+ * The DMA page: the span a transfer target must not cross. NBPP is 2048 on
+ * the 68030 line and 4096 on the 68040/68060 line. A target inside one
+ * 2 KiB-aligned 2 KiB span lies inside one page on either line, so the checks
+ * and aligned allocations below use 2048 on both: the value the static object
+ * was built and proven with on both lines, whichever headers compile it (the
+ * loadable-module build compiles once per line, see README.md). The
+ * typedef refuses a page size that is not a multiple of it, and emits nothing.
+ */
+#define AMIX_KERN_DMA_PAGE 2048u
+typedef char amix_kern_dma_page_check[(NBPP % AMIX_KERN_DMA_PAGE) == 0 ? 1 : -1];
 
 /*
  * Kernel externs the headers above do not declare. Spelled K&R (no
@@ -193,7 +205,8 @@ static odfs_err_t amix_kern_submit(amix_kern_ctx_t *ctx,
      * fire a wild DMA; every internal caller guarantees an in-page target
      * (page-aligned sector buffers, or the bounce in read_sectors).
      */
-    if (((unsigned long)data & (NBPP - 1)) + nbyte > (unsigned long)NBPP) {
+    if (((unsigned long)data & (AMIX_KERN_DMA_PAGE - 1)) + nbyte >
+        (unsigned long)AMIX_KERN_DMA_PAGE) {
         cmn_err(CE_WARN,
                 "cdfs: refused DMA crossing a page: addr 0x%x nbyte %d",
                 (unsigned int)(unsigned long)data, (int)nbyte);
@@ -282,11 +295,11 @@ static odfs_err_t amix_kern_read_sectors(void *ctx, uint32_t lba,
          * the submit sleep is a reschedule point and concurrent readers
          * of one mount must not share a bounce.
          */
-        if (((unsigned long)out & (NBPP - 1)) != 0) {
+        if (((unsigned long)out & (AMIX_KERN_DMA_PAGE - 1)) != 0) {
             if (bounce == 0) {
                 bounce = (unsigned char *)
                     odfs_malloc_aligned((size_t)AMIX_KERN_MAX_XFER,
-                                        (size_t)NBPP);
+                                        (size_t)AMIX_KERN_DMA_PAGE);
                 if (bounce == 0)
                     return ODFS_ERR_NOMEM;
             }
@@ -379,7 +392,8 @@ static odfs_err_t amix_kern_check_inquiry(amix_kern_ctx_t *c)
     unsigned char *data;
     odfs_err_t     err;
 
-    data = (unsigned char *)odfs_malloc_aligned((size_t)NBPP, (size_t)NBPP);
+    data = (unsigned char *)odfs_malloc_aligned((size_t)AMIX_KERN_DMA_PAGE,
+                                                    (size_t)AMIX_KERN_DMA_PAGE);
     if (data == 0)
         return ODFS_ERR_NOMEM;
 
@@ -418,7 +432,8 @@ static odfs_err_t amix_kern_read_capacity(amix_kern_ctx_t *c)
     odfs_err_t     err;
     unsigned int   i;
 
-    data = (unsigned char *)odfs_malloc_aligned((size_t)NBPP, (size_t)NBPP);
+    data = (unsigned char *)odfs_malloc_aligned((size_t)AMIX_KERN_DMA_PAGE,
+                                                    (size_t)AMIX_KERN_DMA_PAGE);
     if (data == 0)
         return ODFS_ERR_NOMEM;
 

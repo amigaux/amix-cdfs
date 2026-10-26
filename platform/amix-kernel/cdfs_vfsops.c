@@ -33,6 +33,7 @@
 #include <sys/mount.h>         /* MS_RDONLY — the mount(2) flag bits */
 #include <sys/sysmacros.h>     /* makedevice(), L_MAXMAJ/L_MAXMIN */
 #include <string.h>            /* memset, strncpy */
+#include "cdfs_mod.h"          /* the module form's own names (CDFS_MODULE) */
 
 /*
  * copyinstr() copies a NUL-terminated string in from user space. Declared K&R
@@ -152,8 +153,23 @@ static int cdfs_parse_spec(const char *s, unsigned int *card, unsigned int *unit
 #define CDFS_CARD_MASK  0x3ffU          /* 10 minor bits for the card ... */
 #define CDFS_UNIT_MASK  0xffU           /* ... and 8 for the unit = 18 = L_MAXMIN */
 
-/* makedevice(major, 0) — latched once by cdfsinit(), see above. */
+/* makedevice(major, 0) — latched once by cdfsinit(), see above. The module
+ * form's cdfsinit and this variable live in cdfs_modlocal.c. */
+#if !defined(CDFS_MODULE)
 static dev_t cdfs_devbase = (dev_t)0;
+#endif
+
+/*
+ * The duplicate-drive guard's other half: the module form claims the drive in
+ * the guard (it has no vfs_devsearch, see cdfs_mod.h) and gives it back on
+ * every failed mount and at unmount. The static object has nothing to give
+ * back: vfs_devsearch() reads the live vfs list.
+ */
+#if defined(CDFS_MODULE)
+#define CDFS_DRIVE_RELEASE(dev) cdfs_drive_release(dev)
+#else
+#define CDFS_DRIVE_RELEASE(dev) ((void)0)
+#endif
 
 static dev_t cdfs_makedev(unsigned int card, unsigned int unit)
 {
@@ -271,20 +287,27 @@ static int cdfs_mount(struct vfs *vfsp, struct vnode *mvp,
      * never have supported this check.
      */
     dev = cdfs_makedev(card, unit);
+#if defined(CDFS_MODULE)
+    if (cdfs_drive_claim(dev) != 0)
+#else
     if (vfs_devsearch(dev) != 0)
+#endif
         return EBUSY;
 
     /* sizeof(*cvfs) is over 4096 bytes, a kmem oversize request: fail with
      * ENOMEM rather than sleep forever on Km_OsizeWanted (see odfs/alloc.h). */
     cvfs = (struct cdfs_vfs *)kmem_zalloc(sizeof(*cvfs), KM_NOSLEEP);
-    if (cvfs == 0)
+    if (cvfs == 0) {
+        CDFS_DRIVE_RELEASE(dev);
         return ENOMEM;
+    }
     cvfs->card = card;
     cvfs->unit = unit;
 
     oe = odfs_kern_media_open_scsi(card, unit, &media);
     if (oe != ODFS_OK) {
         kmem_free((void *)cvfs, sizeof(*cvfs));
+        CDFS_DRIVE_RELEASE(dev);
         return cdfs_errno(oe);
     }
 
@@ -294,6 +317,7 @@ static int cdfs_mount(struct vfs *vfsp, struct vnode *mvp,
     if (oe != ODFS_OK) {
         odfs_media_close(&media);   /* odfs_mount does not close on failure */
         kmem_free((void *)cvfs, sizeof(*cvfs));
+        CDFS_DRIVE_RELEASE(dev);
         return cdfs_errno(oe);
     }
 
@@ -341,6 +365,7 @@ static int cdfs_mount(struct vfs *vfsp, struct vnode *mvp,
     if (e != 0) {
         odfs_unmount(&cvfs->mnt);
         kmem_free((void *)cvfs, sizeof(*cvfs));
+        CDFS_DRIVE_RELEASE(dev);
         return e;
     }
     rvp->v_flag |= VROOT;
@@ -383,6 +408,7 @@ static int cdfs_unmount(struct vfs *vfsp, cred_t *cr)
 
     kmem_free((void *)cvfs, sizeof(*cvfs));
 
+    CDFS_DRIVE_RELEASE(vfsp->vfs_dev);
     return 0;
 }
 
@@ -491,6 +517,7 @@ static int cdfs_swapvp(struct vfs *vfsp, struct vnode **vpp, char *nm)
  * <sys/vfs.h>; strcmp is the kernel's own copy (declared in <string.h>). All
  * three stay undefined externs in libcdfskern.o, resolved at the kernel link.
  */
+#if !defined(CDFS_MODULE)   /* the module form's cdfsinit: cdfs_modlocal.c */
 int cdfsinit()
 {
     int i;
@@ -519,6 +546,7 @@ int cdfsinit()
     }
     return 0;
 }
+#endif /* !CDFS_MODULE */
 
 /* ---- the vector: positional, EXACT <sys/vfs.h> struct vfsops order --- */
 

@@ -296,7 +296,7 @@ AMIGAOS4_README      = docs/ODFileSystem_OS4.readme
 # ==================================================================
 
 .PHONY: all host amiga amiga-test amiga-020 adf rom rom-test lib tests tools fuzz
-.PHONY: amix amix-lib amix-tools amix-mount amix-kernel
+.PHONY: amix amix-lib amix-tools amix-mount amix-kernel amix-kernel-module
 .PHONY: check golden-check malformed-check fuzz-check integration-check
 .PHONY: clean size amigaos3-lha amigaos4-lha
 
@@ -814,6 +814,51 @@ $(AMIX_KERNEL_BUILD)/platform/amix-kernel/amix_kern_media.o: \
 # guards against.
 $(AMIX_KERNEL_BUILD)/platform/amix-kernel/kstring.o: \
 	AMIX_KERNEL_CFLAGS += -fno-builtin
+
+# ---- the loadable-module form's object ----
+#
+# The same sources plus platform/amix-kernel/cdfs_modlocal.c, with
+# -DCDFS_MODULE, compiled with the same flags but against an amix-dlm ABI
+# kit's headers (one kit per kernel line) instead of the toolchain sysroot:
+#
+#   make amix-kernel-module AMIX_KIT=/path/to/kit/k30
+#
+# gives build/amix-module/<line>/libcdfskern.o, which
+# platform/amix-kernel/module/Makefile links into the module (the kit's
+# EXTRA). Normally that Makefile runs this, with the kit's pinned compiler.
+# The static object above does not change.
+ifneq ($(AMIX_KIT),)
+AMIX_KMOD_LINE     := $(shell sed -n 's/^LINE=//p' $(AMIX_KIT)/kit.conf)
+AMIX_KMOD_BUILD     = build/amix-module/$(AMIX_KMOD_LINE)
+AMIX_KMOD_LIB_SRCS  = $(AMIX_KERNEL_LIB_SRCS) platform/amix-kernel/cdfs_modlocal.c
+AMIX_KMOD_LIB_OBJS  = $(patsubst %.c,$(AMIX_KMOD_BUILD)/kobj/%.o,$(AMIX_KMOD_LIB_SRCS))
+AMIX_KMOD_OBJ       = $(AMIX_KMOD_BUILD)/libcdfskern.o
+AMIX_KMOD_CFLAGS    = $(AMIX_KERNEL_CFLAGS) -DCDFS_MODULE
+AMIX_KMOD_INCLUDES  = $(AMIX_KERNEL_INCLUDES)
+
+amix-kernel-module: $(AMIX_KMOD_OBJ)
+	@echo "  AMIX-KERNEL module object ($(AMIX_KMOD_LINE)): $(AMIX_KMOD_OBJ)"
+
+$(AMIX_KMOD_OBJ): $(AMIX_KMOD_LIB_OBJS)
+	@mkdir -p $(@D)
+	@echo "  LD -r  $@"
+	@$(AMIX_LD) -r -o $@ $(AMIX_KMOD_LIB_OBJS)
+
+# The cross gcc wrapper takes its header root from AMIX_SYSROOT: the kit's.
+$(AMIX_KMOD_BUILD)/kobj/%.o: %.c $(AMIX_KIT)/kit.conf
+	@mkdir -p $(@D)
+	@echo "  KMODCC $<"
+	@AMIX_SYSROOT=$(AMIX_KIT)/sysroot $(AMIX_CC) $(CPPFLAGS) $(AMIX_KMOD_INCLUDES) \
+		$(AMIX_KMOD_CFLAGS) -c -o $@ $<
+
+$(AMIX_KMOD_BUILD)/kobj/platform/amix-kernel/amix_kern_media.o: \
+	AMIX_KMOD_INCLUDES += -I $(AMIX_KIT)/stock/usr/sys/amiga/alien
+$(AMIX_KMOD_BUILD)/kobj/platform/amix-kernel/kstring.o: \
+	AMIX_KMOD_CFLAGS += -fno-builtin
+else
+amix-kernel-module:
+	@echo "amix-kernel-module: set AMIX_KIT to a built amix-dlm ABI kit" >&2; exit 1
+endif
 
 # ---- clean ----
 
