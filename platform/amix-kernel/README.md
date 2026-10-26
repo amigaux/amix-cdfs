@@ -317,7 +317,9 @@ make -C platform/amix-kernel/module test    # the host test of the load path
 It needs amix-dlm's built ABI kits of kabi `k30.1.2` / `k46.1.2` or later
 (`DLM=/path/to/amix-dlm`, default the sibling checkout's `build/kit/<line>`;
 or `KIT_k30=` / `KIT_k46=`), the pinned cross tools (`m68k-cbm-sysv4-*`) on
-`PATH`, and `python3`.
+`PATH`, and `python3`. The kits must come from amix-dlm `8fc87de` or later
+(`KIT_REV` in the kit's `kit.conf`): older kits do not know `PAGESHIFT_OK`
+(below), and their `k46` check refuses the module.
 
 **One source, two forms.** `-DCDFS_MODULE` selects the module form; without
 it every file compiles to the static object, byte for byte (`libcdfskern.o`
@@ -368,7 +370,17 @@ clock stopped (it neither sleeps nor allocates; `cdfsinit` calls only
 `getudev()`).
 
 **Gates.** The kit's `modfix` and `modcheck.py`, then
-[`module/modgate.py`](module/modgate.py): `nm -u` of the module lists only
+[`module/modgate.py`](module/modgate.py). Both objects pass. On `k46`,
+`modcheck.py`'s page-geometry rule refuses a shift by 11, since 2048 is a page
+on `k30` but not on `k46`. Seven of the module's shifts by 11 are CD-sector
+arithmetic (`offset / 2048` in the ISO 9660, Joliet and UDF readers and in
+`cdfs_bytes_to_dev_blocks`), not page arithmetic, so
+[`module/Makefile`](module/Makefile) names those functions in `PAGESHIFT_OK`:
+the rule is waived inside them only, the ok line names them (`7 page-geometry
+shift(s) waived in …`), and a named function with no such shift is refused.
+The waiver is a check setting; the objects' bytes do not change. A new shift
+by 11 anywhere else must be explained before it is added to the list.
+`modgate.py` checks that `nm -u` of the module lists only
 DDI names (and the weak `cdfs_conf_data`), `fs=` equals the name `_load`
 registers, the object passes the kit's run-in-place rule, and it prints the
 `.moddata` keys and the sha256. [`module/hosttest.sh`](module/hosttest.sh)
@@ -390,12 +402,6 @@ static object has run on both.
 - The module has not been loaded on any kernel: no kernel cut carries the
   names yet. Emulation, then hardware, follow (the mount and refusal rows of
   [`docs/amix-module-port.md`](../../docs/amix-module-port.md) §6).
-- The `k46` object does not pass the kit's `modcheck.py` yet: its page-geometry
-  rule refuses any shift by 11, and seven of the module's are CD-sector
-  arithmetic (`offset / 2048` in the ISO 9660, Joliet and UDF readers and in
-  `cdfs_bytes_to_dev_blocks`), not page arithmetic. The rule needs a way to
-  tell them apart; every other `modcheck.py` and `modgate.py` check passes on
-  `k46`.
 - Root-class use waits on the promotion described above.
 - The host test covers the load path and the drive table, not a mount.
 
