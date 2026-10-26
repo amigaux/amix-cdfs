@@ -1,3 +1,13 @@
+## 2026-10-27 — cdfs as a boot-class loadable filesystem module, kabi 1.2 (f8875bb, e1bfa50, d66beb9, ef96470)
+
+-DCDFS_MODULE from the same sources (static libcdfskern.o byte-identical, 694a6e14). init takes (row, index) from vfs_register;
+a module-local mounted-drive table replaces vfs_devsearch; strncpy local; DMA page pinned at 2048 both lines. .moddata
+name=cdfs class=boot match=always fs=cdfs unload=never; MOD_MISC_WRAPPER; _load = vfs_register("cdfs", cdfsinit,
+&cdfs_vfsops, 0). New platform/amix-kernel/module/ (Makefile, keys, Master, VERSION 1.0.0-1, modgate.py, hosttest.sh).
+k30: modcheck ok (69704 B, 3038f6fd); k46: every rule passes but the page-geometry scan, which flags seven `moveq #11 + lsrl`
+CD-sector divisions (offset / 2048) as page shifts — an amix-dlm checker question (2808fcd9). nm -u is DDI-only (32 names);
+in-place ready; host test of the load path green; harness green. Running waits on the -79/-14 kernels (13 names + layouts).
+
 ## 2026-10-27 — docs/amix-module-port.md: the plan for the AMIX target as a loadable filesystem module (d1c46a4)
 
 Under amix-dlm C4-6 v2: _load → vfs_register, init with (row, index); class boot on a disk-rooted box, root on the CD medium,
