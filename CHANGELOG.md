@@ -1,3 +1,9 @@
+## 2026-10-27 — cdfs module: the k46 object passes modcheck with PAGESHIFT_OK (3418217)
+
+The seven CD-sector divisions (offset / 2048) are waived per function in the module Makefile (amix-dlm 8fc87de's modcheck -w):
+`ok (k46.1.2, boot, 69704 bytes); 7 page-geometry shift(s) waived in …`; k30 ok as before; objects unchanged (3038f6fd /
+2808fcd9); harness and host test green. Kits must be minted from amix-dlm 8fc87de or later.
+
 ## 2026-10-27 — cdfs as a boot-class loadable filesystem module, kabi 1.2 (f8875bb, e1bfa50, d66beb9, ef96470)
 
 -DCDFS_MODULE from the same sources (static libcdfskern.o byte-identical, 694a6e14). init takes (row, index) from vfs_register;
