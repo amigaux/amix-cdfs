@@ -13,15 +13,19 @@ backends the cross-built tools use — is next door in
 
 | File | Lines | What it is |
 |---|---:|---|
-| [`cdfs_vfsops.c`](cdfs_vfsops.c) | 520 | The `struct vfsops` vector: mount, unmount, root, statvfs, sync, vget, mountroot, swapvp — plus `cdfsinit()` |
+| [`cdfs_vfsops.c`](cdfs_vfsops.c) | 565 | The `struct vfsops` vector: mount, unmount, root, statvfs, sync, vget, mountroot, swapvp — plus `cdfsinit()` |
 | [`cdfs_vnodeops.c`](cdfs_vnodeops.c) | 543 | The 37-slot `struct vnodeops` vector: open/read/readdir/lookup/getattr/readlink/… |
-| [`cdfs_node.c`](cdfs_node.c) | 240 | The per-mount vnode object cache, and the `odfs_err_t` → errno table |
-| [`amix_kern_media.c`](amix_kern_media.c) | 509 | In-kernel SCSI media backend: `struct sdcom` + `sdqueue()` + sleep |
-| [`kstring.c`](kstring.c) | 146 | The `memmove`/`memset`/`memcmp` the SVR4 kernel does not export |
+| [`cdfs_node.c`](cdfs_node.c) | 241 | The per-mount vnode object cache, and the `odfs_err_t` → errno table |
+| [`amix_kern_media.c`](amix_kern_media.c) | 524 | In-kernel SCSI media backend: `struct sdcom` + `sdqueue()` + sleep |
+| [`kstring.c`](kstring.c) | 168 | The `memmove`/`memset`/`memcmp` the SVR4 kernel does not export (and the module form's `strncpy`) |
 | [`cdfs.h`](cdfs.h) | 134 | `struct cdfs_vfs`, `struct cdfsnode`, the shared declarations |
 | [`cdfs_blocks.h`](cdfs_blocks.h) | 103 | `st_blocks` arithmetic, factored out so the host test suite can cover it |
 | [`compat/string.h`](compat/string.h) | 77 | `<string.h>` interceptor for the kernel build |
 | [`amix_kern_media.h`](amix_kern_media.h) | 42 | The one entry point `cdfs_mount()` calls |
+| [`cdfs_mod.c`](cdfs_mod.c) | 44 | Loadable module only: the module wrapper and `_load` |
+| [`cdfs_modlocal.c`](cdfs_modlocal.c) | 100 | Loadable module only: its `cdfsinit(row, index)` and mounted-drive table |
+| [`cdfs_mod.h`](cdfs_mod.h) | 40 | Loadable module only: the names above |
+| [`module/`](module/) | | Loadable module only: its build (Makefile, keys, VERSION), gate and host test |
 
 ## Building — `make amix-kernel`
 
@@ -30,8 +34,10 @@ make amix-kernel                                      # -> build/amix-kernel/lib
 make amix-kernel AMIX_CROSS_PREFIX=/path/to/amix-cross
 ```
 
-The output is **one relocatable object**, not an executable and not a loadable
-module — AMIX has no loadable filesystems. Three things make this build differ
+The output is **one relocatable object** for a static kernel link, not an
+executable — stock AMIX has no loadable filesystems. (The same sources also
+build as a module for the Amix loadable-module system; see
+[The loadable module](#the-loadable-module--make--c-module) below.) Three things make this build differ
 from the userspace `make amix` arm:
 
 1. **`-DODFS_PLATFORM_AMIX_KERNEL -D_KERNEL`** selects the kernel arm at each of
@@ -142,17 +148,21 @@ Two halves, and both are needed:
   **sector-aligned**, via `odfs_malloc_aligned`.
 - `31e8c3b` (here) makes the contract **enforced rather than assumed**:
   `amix_kern_submit()` refuses — loudly, with a `cmn_err(CE_WARN)` — any request
-  whose in-page offset plus length exceeds `NBPP`, and `read_sectors()` routes
+  whose in-page offset plus length exceeds the DMA page
+  (`AMIX_KERN_DMA_PAGE`, 2048), and `read_sectors()` routes
   any unaligned caller through a page-aligned bounce sector plus a `memcpy`
   rather than firing a wild DMA. The bounce is allocated per call, not per
   mount, because the submit sleep is a reschedule point and concurrent readers
   of one mount must not share one.
 
-**On 4 KiB-page kernels the same object stays correct.** `NBPP` comes from the
-stock headers, so the object enforces the rule at 2048 bytes even where the
-68040/68060 kernels run 4096-byte pages. That is stricter, never weaker: a
-2048-aligned 2048-byte transfer always sits inside one 4096-byte page, so
-one object serves both kernel lines. Nothing else in the read path depends on
+**On 4 KiB-page kernels the same object stays correct.** The rule is enforced at
+2048 bytes (`AMIX_KERN_DMA_PAGE`) even where the 68040/68060 kernels run
+4096-byte pages (`NBPP` 4096). That is stricter, never weaker: a 2048-aligned
+2048-byte transfer always sits inside one 4096-byte page, so one object serves
+both kernel lines. The value is a constant rather than `NBPP`, so a build
+against 4 KiB-page headers (the loadable module's 68040/68060 object) keeps the
+2048 path that was proven on both lines; a compile-time check refuses a page
+size that is not a multiple of it. Nothing else in the read path depends on
 the page size. A read returns min(request, size - offset) bytes, never fewer.
 `tests/unit/test_read_span.c` checks both at a 2048 and a 4096 runtime page.
 
@@ -290,6 +300,104 @@ scan060.py cdfs.lst            # test-tools/scan060.py in asokero/amix-040-060-p
 
 A new division by a constant or a widening multiply in code that reaches the
 kernel object brings a candidate back; route it through `odfs/arith.h`.
+
+## The loadable module — `make -C module`
+
+The same sources also build as a filesystem module for the Amix loadable-module
+system (amix-dlm), one object per kernel line: `k30` (68030 kernels, 2 KiB
+pages) and `k46` (68040/68060 kernels, 4 KiB pages). Both are module ABI
+(kabi) 1.2.
+
+```sh
+make -C platform/amix-kernel/module         # build/amix-module/{k30,k46}/mod.d/cdfs
+make -C platform/amix-kernel/module k30     # one line (or k46)
+make -C platform/amix-kernel/module test    # the host test of the load path
+```
+
+It needs amix-dlm's built ABI kits of kabi `k30.1.2` / `k46.1.2` or later
+(`DLM=/path/to/amix-dlm`, default the sibling checkout's `build/kit/<line>`;
+or `KIT_k30=` / `KIT_k46=`), the pinned cross tools (`m68k-cbm-sysv4-*`) on
+`PATH`, and `python3`.
+
+**One source, two forms.** `-DCDFS_MODULE` selects the module form; without
+it every file compiles to the static object, byte for byte (`libcdfskern.o`
+md5 `694a6e147e6ac418a9f604a16b0636cb` before and after the switch). The
+module form differs in three places, because a module may import only the
+module DDI (`ddi.list`):
+
+- `cdfsinit(row, index)` is run once by `vfs_register()`, which has already
+  filled the row; it takes the index as the fstype and latches the
+  `getudev()` major as the static one does. It does not search `vfssw[]`, so
+  the module imports neither `vfssw` nor `nfstype` (`cdfs_modlocal.c`).
+- The duplicate-drive guard keeps its own table of mounted drives instead of
+  calling `vfs_devsearch()`: only a `cdfs` vfs carries the `cdfs` pseudo-major,
+  so the question is the same. The drive is claimed in the guard and given back
+  on every failed mount and at unmount.
+- `strncpy` is the module's own (`kstring.c`).
+
+The module's other objects are the static object's, compiled with the same
+flags (`make amix-kernel-module AMIX_KIT=<kit>`) by the kit's pinned compiler
+against the kit's headers, and linked in by the kit as `EXTRA`. The kit compiles
+only the K&R wrapper `cdfs_mod.c` (it compiles with `-traditional`, which the
+portable ANSI sources cannot take). The two lines' `libcdfskern.o` are
+byte-identical: nothing in them depends on the page size. The kit's `sd.h`
+has `SDCARDS` 4, so the module accepts SCSI cards 0–3; the static object,
+built against the toolchain sysroot's `sd.h` (`SDCARDS` 2), accepts 0–1.
+
+| Item | Content |
+|---|---|
+| `.moddata` | `name=cdfs class=boot match=always fs=cdfs unload=never desc=…`; `kabi=k30.1.2` / `k46.1.2`, `cpu=68030` / `68040`, `cc=` the kit's pin; no `majors`, no `param` (from [`module/keys`](module/keys)) |
+| Wrapper | `MOD_MISC_WRAPPER(cdfs, cdfs_load, 0, …)` (`$modtype misc`): no switch-table row |
+| `_load` | `vfs_register("cdfs", cdfsinit, &cdfs_vfsops, 0)` and nothing else: no I/O, no sleep, no allocation. `EEXIST` when the kernel already has a `cdfs` row (a static `cdfs`), `ENOSPC` when the spare rows are taken |
+| `_unload`, `_halt` | none: a filesystem module is pinned, and `cdfs` holds no device state between requests |
+| Imports | the module DDI only: `vfs_register`, `mod_miscops`, `sdqueue`, `sdopen`, `vn_rele`, `copyinstr`, `getudev`, `fs_nosys`, `fs_setfl`, `fs_frlock`, `fs_poll`, `fs_pathconf`, `fs_cmp`, `fs_rwlock`, `fs_rwunlock`, and the minor-0 names (`kmem_*`, `memcpy`, `strlen`, `strcmp`, `bcopy`, `cmn_err`, `sleep`, `wakeup`, `vtop`, `suser`, `uiomove`, `__udivdi3`, `__umoddi3`, `__lshrdi3`); plus the wrapper's weak `cdfs_conf_data` |
+| Image | 69 704 bytes allocated |
+| Version | [`module/VERSION`](module/VERSION), `1.0.0-1`, both lines |
+
+**Class.** On a disk-rooted box the module is **boot class**: it loads at the
+first `sysinit` entry, before any `rc` script or `/etc/vfstab` mount, because
+the stock mount path has no hook that would load a filesystem by type on
+demand. A box without a CD drive can turn it off with `disable` in
+`modreg.local.d`. On a CD install medium `cdfs` is needed in the root pass, to
+mount the disc as the package source; that root-class placement is to come
+from the boot generation's composer promoting this same object, not from a
+second object. So the object is built to run in place in the boot arena: its
+sections and COMMONs are aligned to at most 16 and each lies at a file offset
+that is a multiple of its alignment, and `_load` is safe at level 7 with the
+clock stopped (it neither sleeps nor allocates; `cdfsinit` calls only
+`getudev()`).
+
+**Gates.** The kit's `modfix` and `modcheck.py`, then
+[`module/modgate.py`](module/modgate.py): `nm -u` of the module lists only
+DDI names (and the weak `cdfs_conf_data`), `fs=` equals the name `_load`
+registers, the object passes the kit's run-in-place rule, and it prints the
+`.moddata` keys and the sha256. [`module/hosttest.sh`](module/hosttest.sh)
+runs `_load` → `vfs_register` → `cdfsinit(row, index)` on the host against a
+stub `vfs_register` and `getudev`, and the drive table.
+
+**What it needs to run.** A module kernel of kabi `k30.1.2` / `k46.1.2` whose
+symbol block carries `vfs_register` and the thirteen names above that entered
+at minor 2 (`sdqueue`, `sdopen`, `vn_rele`, `copyinstr`, `getudev` and the
+eight `fs_*` helpers). The kabi 1.2 ABI text does not yet fingerprint the
+layouts `cdfs` uses (`struct vfs`, `vnode`, `vfsops`, `vnodeops`, `vattr`,
+`uio`, `dirent`, `statvfs`, `mounta`, `fid`, `sdcom`), so running the module
+waits on the next kernel cut of each line, which carries those texts in the
+ABI text and those names in the symbol block. Both lines run the stock 2.1 layouts today, which is why one
+static object has run on both.
+
+**Not yet done.**
+
+- The module has not been loaded on any kernel: no kernel cut carries the
+  names yet. Emulation, then hardware, follow (the mount and refusal rows of
+  [`docs/amix-module-port.md`](../../docs/amix-module-port.md) §6).
+- The `k46` object does not pass the kit's `modcheck.py` yet: its page-geometry
+  rule refuses any shift by 11, and seven of the module's are CD-sector
+  arithmetic (`offset / 2048` in the ISO 9660, Joliet and UDF readers and in
+  `cdfs_bytes_to_dev_blocks`), not page arithmetic. The rule needs a way to
+  tell them apart; every other `modcheck.py` and `modgate.py` check passes on
+  `k46`.
+- Root-class use waits on the promotion described above.
+- The host test covers the load path and the drive table, not a mount.
 
 ## Known limits
 

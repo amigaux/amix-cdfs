@@ -380,6 +380,7 @@ is not changed by any of it.
 ```sh
 make amix          # libodfs.a + imginfo/imgls/imgcat + the mount helper
 make amix-kernel   # one relocatable kernel object
+make -C platform/amix-kernel/module   # the same, as a loadable module (k30, k46)
 ```
 
 `make amix` writes `build/amix/`: `libodfs.a` cross-built for AMIX, the three
@@ -436,8 +437,12 @@ edited. The whole body is gated on `ODFS_PLATFORM_AMIX` /
 
 ### Getting the kernel filesystem into a kernel
 
-`make amix-kernel` produces a relocatable object, not a loadable module: AMIX
-has no loadable filesystems. The object has to be built into a kernel, and
+`make amix-kernel` produces a relocatable object, not a loadable module: stock
+AMIX has no loadable filesystems. (For kernels of the Amix loadable-module
+system, the same sources build as a boot-class filesystem module with
+`make -C platform/amix-kernel/module`; see
+[platform/amix-kernel/README.md](platform/amix-kernel/README.md#the-loadable-module--make--c-module).)
+The object has to be built into a kernel, and
 this repository's Makefile does not do that step. In the stock `/usr/sys`
 kernel tree it takes three edits and a relink:
 

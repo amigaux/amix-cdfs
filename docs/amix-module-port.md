@@ -1,7 +1,15 @@
 # AMIX port: `cdfs` as a loadable filesystem module (plan)
 
-Status: a plan. Nothing here is built yet. Today `cdfs` is linked into the
-kernel ([`platform/amix-kernel/README.md`](../platform/amix-kernel/README.md)).
+Status: built. The module is `platform/amix-kernel/module/`, documented in
+[`platform/amix-kernel/README.md`](../platform/amix-kernel/README.md#the-loadable-module--make--c-module),
+which supersedes this page where they differ. amix-dlm answered §7: the
+thirteen names are DDI minor 2 (1); the vfs/vnode layouts are not in the 1.2
+ABI text yet, so running waits on the cut that carries them (2); boot class on
+disk, root class by promotion of the same object (3, 4); `fs=` for every
+`vfs_register` caller (5); `MOD_MISC_WRAPPER` (6); the prebuilt `EXTRA` (7);
+the kit's `sd.h` has `SDCARDS 4` (8); the completion runs at level 4 or below
+(9); `init` gets the row and its index (10). The text below is the plan as
+written. The static object is still built and linked as before.
 This page says how the same sources become a loadable module under the Amix
 module system (amix-dlm), and what that system has to provide first. It is part
 of the AMIX target and does not touch the portable core.
