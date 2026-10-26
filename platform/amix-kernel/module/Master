@@ -1,0 +1,8 @@
+# generated from keys by module/Makefile
+$modtype misc
+$class boot
+$match always
+$fs cdfs
+$unload never
+$desc cdfs read-only CD filesystem (ISO 9660, Joliet, Rock Ridge, UDF, HFS)
+cdfs cdfs

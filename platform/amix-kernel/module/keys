@@ -1,0 +1,16 @@
+# The .moddata keys of the cdfs module (amix-dlm C3-1 section 3, C4-6
+# section 1), one key=value string per line as the section carries them.
+# kabi, cc and cpu come from the ABI kit of the line (68030 on k30, 68040 on
+# k46); module/Makefile turns this file into the kit's Master.
+# class=boot: loaded at the first sysinit entry on a disk-rooted box; a box
+# without a CD drive can turn it off with `disable` in modreg.local.d.
+# match=always: no key describes "a CD drive is present", and a root-class
+# placement of the same object needs a match= (the object is built to run
+# in place, see README.md).
+# fs=cdfs: the name _load gives vfs_register (cdfs_mod.c CDFS_FSNAME).
+name=cdfs
+class=boot
+match=always
+fs=cdfs
+unload=never
+desc=cdfs read-only CD filesystem (ISO 9660, Joliet, Rock Ridge, UDF, HFS)
