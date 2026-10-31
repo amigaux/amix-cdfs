@@ -13,7 +13,21 @@
 
 #include <string.h>
 
+/*
+ * Bytes of names per chunk. A platform whose allocator has a cheap size
+ * class up to some request size says so with ODFS_ALLOC_SMALL_MAX
+ * (odfs/alloc.h); a chunk then fits that class, header included. On the
+ * AMIX kernel a 4096-byte chunk plus its headers was just over the kmem
+ * big-pool limit, so every chunk took two contiguous kernel-map pages.
+ */
+#ifndef ODFS_NAMEFIX_CHUNK_SIZE
+#ifdef ODFS_ALLOC_SMALL_MAX
+#define ODFS_NAMEFIX_CHUNK_SIZE \
+    ((size_t)ODFS_ALLOC_SMALL_MAX - sizeof(odfs_namefix_chunk_t))
+#else
 #define ODFS_NAMEFIX_CHUNK_SIZE 4096u
+#endif
+#endif
 
 void odfs_namefix_init(odfs_namefix_state_t *state)
 {

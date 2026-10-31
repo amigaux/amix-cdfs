@@ -56,6 +56,13 @@
 #define ODFS_KMEM_MAXABIG ((size_t)4096)
 #define ODFS_KMEM_FLAGS(total) KM_NOSLEEP
 
+/*
+ * The largest odfs_malloc() payload that stays out of the oversize path
+ * (with the header the request is then at most MAXABIG). Shared code that
+ * allocates in chunks sizes them to it (core/namefix.c).
+ */
+#define ODFS_ALLOC_SMALL_MAX (ODFS_KMEM_MAXABIG - ODFS_KMEM_HDR)
+
 static inline void *odfs_malloc(size_t size)
 {
     char   *base;
