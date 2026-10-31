@@ -306,7 +306,8 @@ kernel object brings a candidate back; route it through `odfs/arith.h`.
 The same sources also build as a filesystem module for the Amix loadable-module
 system (amix-dlm), one object per kernel line: `k30` (68030 kernels, 2 KiB
 pages) and `k46` (68040/68060 kernels, 4 KiB pages). Both are module ABI
-(kabi) 1.2.
+(kabi) 1.4: the module imports no name newer than minor 2, but it is a
+demand-class filesystem module, which the kit tags minor 4 (below).
 
 ```sh
 make -C platform/amix-kernel/module         # build/amix-module/{k30,k46}/mod.d/cdfs
@@ -314,12 +315,13 @@ make -C platform/amix-kernel/module k30     # one line (or k46)
 make -C platform/amix-kernel/module test    # the host test of the load path
 ```
 
-It needs amix-dlm's built ABI kits of kabi `k30.1.2` / `k46.1.2` or later
-(`DLM=/path/to/amix-dlm`, default the sibling checkout's `build/kit/<line>`;
+It needs the built ABI kits of kabi `k30.1.4` / `k46.1.4` or later, from
+the amix repository's `kernel/dlm` (`DLM=/path/to/amix/kernel/dlm`, default
+the sibling checkout `../amix/kernel/dlm`, whose `build/kit/<line>` is used;
 or `KIT_k30=` / `KIT_k46=`), the pinned cross tools (`m68k-cbm-sysv4-*`) on
-`PATH`, and `python3`. The kits must come from amix-dlm `8fc87de` or later
-(`KIT_REV` in the kit's `kit.conf`): older kits do not know `PAGESHIFT_OK`
-(below), and their `k46` check refuses the module.
+`PATH`, and `python3`. An older kit tags the module below minor 4 or does not
+know demand-class filesystems, and a demand-class filesystem module tagged
+below minor 4 is refused by `kbootset` and by apkg's pre-flight.
 
 **One source, two forms.** `-DCDFS_MODULE` selects the module form; without
 it every file compiles to the static object, byte for byte (`libcdfskern.o`
@@ -348,26 +350,45 @@ built against the toolchain sysroot's `sd.h` (`SDCARDS` 2), accepts 0–1.
 
 | Item | Content |
 |---|---|
-| `.moddata` | `name=cdfs class=boot match=always fs=cdfs unload=never desc=…`; `kabi=k30.1.2` / `k46.1.2`, `cpu=68030` / `68040`, `cc=` the kit's pin; no `majors`, no `param` (from [`module/keys`](module/keys)) |
+| `.moddata` | `name=cdfs class=demand match=always fs=cdfs unload=never desc=…`; `kabi=k30.1.4` / `k46.1.4`, `cpu=68030` / `68040`, `cc=` the kit's pin; no `majors`, no `param` (from [`module/keys`](module/keys)) |
 | Wrapper | `MOD_MISC_WRAPPER(cdfs, cdfs_load, 0, …)` (`$modtype misc`): no switch-table row |
 | `_load` | `vfs_register("cdfs", cdfsinit, &cdfs_vfsops, 0)` and nothing else: no I/O, no sleep, no allocation. `EEXIST` when the kernel already has a `cdfs` row (a static `cdfs`), `ENOSPC` when the spare rows are taken |
 | `_unload`, `_halt` | none: a filesystem module is pinned, and `cdfs` holds no device state between requests |
 | Imports | the module DDI only: `vfs_register`, `mod_miscops`, `sdqueue`, `sdopen`, `vn_rele`, `copyinstr`, `getudev`, `fs_nosys`, `fs_setfl`, `fs_frlock`, `fs_poll`, `fs_pathconf`, `fs_cmp`, `fs_rwlock`, `fs_rwunlock`, and the minor-0 names (`kmem_*`, `memcpy`, `strlen`, `strcmp`, `bcopy`, `cmn_err`, `sleep`, `wakeup`, `vtop`, `suser`, `uiomove`, `__udivdi3`, `__umoddi3`, `__lshrdi3`); plus the wrapper's weak `cdfs_conf_data` |
 | Image | 69 704 bytes allocated |
-| Version | [`module/VERSION`](module/VERSION), `1.0.0-1`, both lines |
+| Version | [`module/VERSION`](module/VERSION), `1.1.0-1`, both lines (`1.0.0-1` was the boot-class module) |
 
-**Class.** On a disk-rooted box the module is **boot class**: it loads at the
-first `sysinit` entry, before any `rc` script or `/etc/vfstab` mount, because
-the stock mount path has no hook that would load a filesystem by type on
-demand. A box without a CD drive can turn it off with `disable` in
-`modreg.local.d`. On a CD install medium `cdfs` is needed in the root pass, to
-mount the disc as the package source; that root-class placement is to come
-from the boot generation's composer promoting this same object, not from a
-second object. So the object is built to run in place in the boot arena: its
+**Class.** The module is **demand class** with `fs=cdfs`: it is not loaded at
+boot, but at the first `mount -F cdfs`. On a kabi 1.4 kernel the module core
+gives the `cdfs` type a stub `vfssw` row at the first `sysinit` entry; the
+stub's `vfs_mount`, in the mount system call's process context, loads the
+module (its SHA-256 checked against the generation's manifest), whose `_load`
+fills the same row through `vfs_register`, and the mount goes on through the
+real `cdfs_vfsops`. A load that fails fails that mount and leaves the stub, so
+a later mount tries again. Once loaded, the module stays until the next boot
+(it is pinned). So `cdfs` costs no kernel memory on a box that never mounts a
+disc. `disable` in `/etc/conf/modreg.local.d/cdfs` still turns it off: the
+type then gets no stub row, and `mount -F cdfs` fails with `EINVAL`, as it
+does in safe mode. The install media root on their RAM disk and load `cdfs`
+the same way, when the installer mounts the disc.
+
+A medium that rooted on the CD itself would need `cdfs` in the root pass;
+that placement comes from the boot generation's composer promoting this same
+object, not from a second object. So the object is built to run in place in
+the boot arena: its
 sections and COMMONs are aligned to at most 16 and each lies at a file offset
 that is a multiple of its alignment, and `_load` is safe at level 7 with the
 clock stopped (it neither sleeps nor allocates; `cdfsinit` calls only
 `getudev()`).
+
+**Memory at the first mount.** A demand-class load runs in process context,
+after multi-user, and the module core holds the whole load at once: the file
+buffer (the 98 935-byte file rounded up to 128 KiB), the section, symbol and
+string tables, the image and the module's symbol table. The kit's checker
+puts that at about 233 600 bytes and warns, since it is over 160 KiB, half of
+what a `k46` box gives a module in process context (about 320 KiB at 128 MB;
+`k30` gives about twice that). The buffer and tables are given back after the
+load; the 69 704-byte image stays.
 
 **Gates.** The kit's `modfix` and `modcheck.py`, then
 [`module/modgate.py`](module/modgate.py). Both objects pass. On `k46`,
@@ -387,10 +408,13 @@ registers, the object passes the kit's run-in-place rule, and it prints the
 runs `_load` → `vfs_register` → `cdfsinit(row, index)` on the host against a
 stub `vfs_register` and `getudev`, and the drive table.
 
-**What it needs to run.** A module kernel of kabi `k30.1.2` / `k46.1.2` whose
-symbol block carries `vfs_register` and the thirteen names above that entered
-at minor 2 (`sdqueue`, `sdopen`, `vn_rele`, `copyinstr`, `getudev` and the
-eight `fs_*` helpers). The kabi 1.2 ABI text does not yet fingerprint the
+**What it needs to run.** A module kernel of kabi `k30.1.4` / `k46.1.4`, whose
+module core has the stub row that loads a filesystem at its first mount, and
+whose symbol block carries `vfs_register` and the thirteen names above that
+entered at minor 2 (`sdqueue`, `sdopen`, `vn_rele`, `copyinstr`, `getudev`
+and the eight `fs_*` helpers); and `kbootset` -31 or later, the first that
+composes a demand-class filesystem module into a boot generation. The ABI
+text does not yet fingerprint the
 layouts `cdfs` uses (`struct vfs`, `vnode`, `vfsops`, `vnodeops`, `vattr`,
 `uio`, `dirent`, `statvfs`, `mounta`, `fid`, `sdcom`), so running the module
 waits on the next kernel cut of each line, which carries those texts in the
@@ -399,9 +423,12 @@ static object has run on both.
 
 **Not yet done.**
 
-- The module has not been loaded on any kernel: no kernel cut carries the
-  names yet. Emulation, then hardware, follow (the mount and refusal rows of
-  [`docs/amix-module-port.md`](../../docs/amix-module-port.md) §6).
+- The module has not been loaded on any kernel: the first mount on a kabi
+  1.4 kernel is still to be run, emulation first, then hardware (the mount
+  and refusal rows of
+  [`docs/amix-module-port.md`](../../docs/amix-module-port.md) §6, with the
+  load at the first `mount -F cdfs` in place of the boot-class load), and on
+  `k46` with the box's usual modules loaded, for the memory above.
 - Root-class use waits on the promotion described above.
 - The host test covers the load path and the drive table, not a mount.
 

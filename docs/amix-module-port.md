@@ -8,8 +8,11 @@ ABI text yet, so running waits on the cut that carries them (2); boot class on
 disk, root class by promotion of the same object (3, 4); `fs=` for every
 `vfs_register` caller (5); `MOD_MISC_WRAPPER` (6); the prebuilt `EXTRA` (7);
 the kit's `sd.h` has `SDCARDS 4` (8); the completion runs at level 4 or below
-(9); `init` gets the row and its index (10). The text below is the plan as
-written. The static object is still built and linked as before.
+(9); `init` gets the row and its index (10). Since C4-6 v5 (kabi 1.4) the
+module is demand class instead: the module core gives the `cdfs` type a stub
+`vfssw` row, and the first `mount -F cdfs` loads it, which answers question 3
+the other way (§3). The text below is the plan as written. The static object
+is still built and linked as before.
 This page says how the same sources become a loadable module under the Amix
 module system (amix-dlm), and what that system has to provide first. It is part
 of the AMIX target and does not touch the portable core.
@@ -109,6 +112,11 @@ Not used at all: the page cache (`pvn_*`, `segmap`, `page_*`), `bdevsw`, `strate
 
 ## 3. Class
 
+Superseded: the module is now demand class with `fs=cdfs`, loaded at the
+first `mount -F cdfs` through the stub row of C4-6 v5 §5 (kabi minor 4), on
+disk-rooted boxes and on the install media alike. `disable` in
+`modreg.local.d` still turns it off. The plan as written follows.
+
 - **On a disk-rooted box: boot class** (C4-6 §5, 30 §6). The stock mount path
   has no load-by-type hook, so a demand-class `cdfs` would never be loaded.
   The module loads at the first `sysinit` entry (30 §3), before any `rc`
@@ -163,7 +171,7 @@ Following C3-5 §1.1, one package per line:
 | catalog name | `cdfs-k30` | `cdfs-k46` |
 | pkginst (≤ 9) | `cdfs30` | `cdfs46` |
 | short name (≤ 7) | `cdfs` | `cdfs` |
-| version | `platform/amix-kernel/module/VERSION`, `1.0.0-1`, both lines | |
+| version | `platform/amix-kernel/module/VERSION`, `1.0.0-1` as planned (`1.1.0-1` since the module is demand class), both lines | |
 | files | `/etc/conf/mod.d/cdfs`, `/etc/conf/modreg.d/cdfs` (comments only) | |
 | `.moddata` | `name=cdfs class=boot match=always fs=cdfs unload=never desc=…`; no `majors`, no `param` | |
 

@@ -439,7 +439,8 @@ edited. The whole body is gated on `ODFS_PLATFORM_AMIX` /
 
 `make amix-kernel` produces a relocatable object, not a loadable module: stock
 AMIX has no loadable filesystems. (For kernels of the Amix loadable-module
-system, the same sources build as a boot-class filesystem module with
+system, the same sources build as a demand-class filesystem module, loaded
+at the first `mount -F cdfs`, with
 `make -C platform/amix-kernel/module`; see
 [platform/amix-kernel/README.md](platform/amix-kernel/README.md#the-loadable-module--make--c-module).)
 The object has to be built into a kernel, and
