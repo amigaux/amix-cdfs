@@ -22,7 +22,7 @@
 #include "cdfs.h"
 #include "odfs/arith.h"
 
-#include <sys/kmem.h>    /* kmem_alloc/kmem_zalloc/kmem_free, KM_SLEEP */
+#include <sys/kmem.h>    /* kmem_alloc/kmem_zalloc/kmem_free, KM_NOSLEEP */
 #include <sys/errno.h>   /* ENOMEM, EIO, ... */
 #include <string.h>      /* strncpy (kernel), + the compiler's aggregate ops */
 
@@ -182,33 +182,38 @@ int cdfs_getnode(struct vfs *vfsp, const odfs_node_t *n,
         }
     }
 
-    /* Miss: allocate + initialize a fresh node. */
-    cnp = (struct cdfsnode *)kmem_zalloc(sizeof(*cnp), KM_SLEEP);
+    /* Miss: allocate + initialize a fresh node. KM_NOSLEEP, as every cdfs
+     * allocation (odfs/alloc.h): under pressure the lookup fails with ENOMEM
+     * rather than wait. */
+    cnp = (struct cdfsnode *)kmem_zalloc(sizeof(*cnp), KM_NOSLEEP);
     if (cnp == 0)
         return ENOMEM;
 
     cnp->node = *n;
     cnp->slink = 0;
 
+    /* A symlink needs its parent + entry name for odfs_readlink(). Before
+     * the vnode is set up, so a failure has only cnp to give back. */
+    if (n->kind == ODFS_NODE_SYMLINK && parent != 0) {
+        cnp->slink = (struct cdfs_symlink *)
+            kmem_zalloc(sizeof(struct cdfs_symlink), KM_NOSLEEP);
+        if (cnp->slink == 0) {
+            kmem_free((void *)cnp, sizeof(*cnp));
+            return ENOMEM;
+        }
+        cnp->slink->parent = *parent;
+        if (name != 0) {
+            (void)strncpy(cnp->slink->name, name,
+                          sizeof(cnp->slink->name) - 1);
+            cnp->slink->name[sizeof(cnp->slink->name) - 1] = '\0';
+        }
+    }
+
     vp = CDFSTOV(cnp);
     VN_INIT(vp, vfsp, cdfs_vtype(n->kind), (dev_t)0);
     vp->v_op = &cdfs_vnodeops;
     vp->v_data = (caddr_t)cnp;
     vp->v_flag |= VNOMAP;
-
-    /* A symlink needs its parent + entry name for odfs_readlink(). */
-    if (n->kind == ODFS_NODE_SYMLINK && parent != 0) {
-        cnp->slink = (struct cdfs_symlink *)
-            kmem_zalloc(sizeof(struct cdfs_symlink), KM_SLEEP);
-        if (cnp->slink != 0) {
-            cnp->slink->parent = *parent;
-            if (name != 0) {
-                (void)strncpy(cnp->slink->name, name,
-                              sizeof(cnp->slink->name) - 1);
-                cnp->slink->name[sizeof(cnp->slink->name) - 1] = '\0';
-            }
-        }
-    }
 
     cnp->hash_next = cvfs->hash[h];
     cvfs->hash[h] = cnp;

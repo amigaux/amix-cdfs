@@ -368,6 +368,13 @@ static odfs_err_t iso_mount(odfs_cache_t *cache,
                          * and produce a malformed, unreadable root directory. */
                         rr_info_t *rr = odfs_calloc(1, sizeof(*rr));
 
+                        /* without it the root would keep the plain ISO
+                         * attributes under the Rock Ridge backend */
+                        if (rr == NULL) {
+                            odfs_free(ctx);
+                            return ODFS_ERR_NOMEM;
+                        }
+
                         ctx->has_rock_ridge = 1;
                         ctx->rr_skip = rr_skip;
                         root_out->backend = ODFS_BACKEND_ROCK_RIDGE;
@@ -375,11 +382,9 @@ static odfs_err_t iso_mount(odfs_cache_t *cache,
                                    "Rock Ridge extensions detected (skip=%d)",
                                    rr_skip);
 
-                        if (rr != NULL) {
-                            rr_parse(sua, sua_len, rr_skip, rr, cache);
-                            iso_apply_rr(root_out, rr, ctx->session_start, 0);
-                            odfs_free(rr);
-                        }
+                        rr_parse(sua, sua_len, rr_skip, rr, cache);
+                        iso_apply_rr(root_out, rr, ctx->session_start, 0);
+                        odfs_free(rr);
                     }
                 }
             }

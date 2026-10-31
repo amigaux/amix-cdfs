@@ -29,9 +29,9 @@
  * the original length. So odfs_malloc/odfs_calloc over-allocate an aligned
  * size_t header, stash the total (header + payload) length there, and hand
  * back the payload pointer; odfs_free reads the length back for kmem_free.
- * KM_SLEEP for pool-sized requests: the filesystem runs in process context,
- * so blocking to obtain memory is allowed. KM_NOSLEEP for oversize ones
- * (see ODFS_KMEM_FLAGS below).
+ * Every request is KM_NOSLEEP (see ODFS_KMEM_FLAGS below): every caller
+ * turns NULL into ODFS_ERR_NOMEM, so memory pressure fails a mount or a
+ * read with ENOMEM instead of putting it to sleep.
  */
 #include <sys/types.h>   /* size_t + _VOID, needed by <sys/kmem.h> */
 #include <sys/kmem.h>    /* kmem_alloc/kmem_zalloc/kmem_free, KM_[NO]SLEEP */
@@ -48,13 +48,13 @@
  * sptalloc() of that many contiguous kernel-VA pages. When no such run is
  * free, KM_SLEEP sleeps at PZERO on Km_OsizeWanted until somebody frees an
  * oversize block at least as large, which may never happen: the caller
- * hangs unkillably (docs/amix-kmem-oversize.md). Ask for oversize blocks
- * with KM_NOSLEEP so they fail instead; every caller turns NULL into
- * ODFS_ERR_NOMEM.
+ * hangs unkillably (docs/amix-kmem-oversize.md). Whether a pool-sized
+ * KM_SLEEP request can wait the same way when its pool cannot grow is not
+ * established, so pool-sized requests are KM_NOSLEEP too: a mount or a
+ * read under memory pressure returns ENOMEM rather than wait.
  */
 #define ODFS_KMEM_MAXABIG ((size_t)4096)
-#define ODFS_KMEM_FLAGS(total) \
-    ((total) > ODFS_KMEM_MAXABIG ? KM_NOSLEEP : KM_SLEEP)
+#define ODFS_KMEM_FLAGS(total) KM_NOSLEEP
 
 static inline void *odfs_malloc(size_t size)
 {

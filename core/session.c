@@ -52,19 +52,20 @@ odfs_err_t odfs_find_last_session(odfs_media_t *media,
      * The TOC (odfs_toc_t is ~1200 bytes: a 99-entry session array) is heap-
      * allocated, not a stack local — the small SVR4/AMIX kernel stack cannot
      * carry it on the mount call chain, especially nested under odfs_mount's
-     * own frame. If it can't be allocated, skip the TOC strategies and fall
-     * through to the PVD scan (which uses LBA 0 when it finds nothing).
+     * own frame. Media that cannot read a TOC gets none allocated; a TOC
+     * that cannot be allocated is treated the same way. Without one the
+     * TOC refinement and strategy 2 are skipped.
      */
-    toc = odfs_calloc(1, sizeof(*toc));
-    if (toc == NULL)
-        goto pvd_scan;
+    toc = NULL;
+    if (odfs_media_has_toc(media))
+        toc = odfs_calloc(1, sizeof(*toc));
 
     /* strategy 1: explicit last-session query */
     err = odfs_media_read_last_session_lba(media, last_lba_out);
     if (err == ODFS_OK) {
         uint32_t explicit_lba = *last_lba_out;
 
-        err = odfs_media_read_toc(media, toc);
+        err = toc ? odfs_media_read_toc(media, toc) : ODFS_ERR_UNSUPPORTED;
         if (err == ODFS_OK && toc->session_count > 0) {
             have_toc = 1;
 
@@ -109,6 +110,8 @@ odfs_err_t odfs_find_last_session(odfs_media_t *media,
     }
 
     /* strategy 2: device TOC heuristic */
+    if (toc == NULL)
+        goto pvd_scan;
     if (!have_toc) {
         err = odfs_media_read_toc(media, toc);
     }

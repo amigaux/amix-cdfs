@@ -78,9 +78,10 @@ static size_t mount_build_session_candidates(odfs_mount_t *mnt,
         return count;
 
     /* The TOC is ~1200 bytes (99-entry session array); allocate it on the heap
-     * rather than the small SVR4/AMIX kernel stack. On OOM, just use the
-     * preferred start that was already recorded above. */
-    {
+     * rather than the small SVR4/AMIX kernel stack, and only when the media
+     * can read one. On OOM, just use the preferred start that was already
+     * recorded above. */
+    if (odfs_media_has_toc(&mnt->media)) {
         odfs_toc_t *toc = odfs_malloc(sizeof(*toc));
 
         if (toc != NULL) {

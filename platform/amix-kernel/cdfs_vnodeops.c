@@ -27,7 +27,7 @@
 #include <sys/cred.h>       /* cred_t */
 #include <sys/file.h>       /* FWRITE */
 #include <sys/pathname.h>   /* struct pathname (vop_lookup) */
-#include <sys/kmem.h>       /* kmem_alloc/kmem_free, KM_SLEEP */
+#include <sys/kmem.h>       /* kmem_alloc/kmem_free, KM_NOSLEEP */
 #include <fs/fs_subr.h>     /* fs_nosys/fs_setfl/fs_frlock/fs_poll/... */
 #include "odfs/ancestry.h"  /* odfs_resolve_parent_node() */
 #include "odfs/alloc.h"     /* odfs_calloc/odfs_free (node scratch off the stack) */
@@ -349,7 +349,7 @@ static int cdfs_readdir(struct vnode *vp, struct uio *uiop, cred_t *cr,
         return EINVAL;
 
     scratchsz = offsetof(struct dirent, d_name) + (size_t)ODFS_NAME_MAX + 8u;
-    scratch = (char *)kmem_alloc(scratchsz, KM_SLEEP);
+    scratch = (char *)kmem_alloc(scratchsz, KM_NOSLEEP);
     if (scratch == 0)
         return ENOMEM;
 
@@ -434,7 +434,7 @@ static int cdfs_readlink(struct vnode *vp, struct uio *uiop, cred_t *cr)
     if (vp->v_type != VLNK || cnp->slink == 0)
         return EINVAL;
 
-    buf = (char *)kmem_alloc((size_t)ODFS_NAME_MAX, KM_SLEEP);
+    buf = (char *)kmem_alloc((size_t)ODFS_NAME_MAX, KM_NOSLEEP);
     if (buf == 0)
         return ENOMEM;
 

@@ -107,6 +107,12 @@ static inline uint32_t odfs_media_sector_count(odfs_media_t *m)
     return m->ops->sector_count(m->ctx);
 }
 
+/* nonzero when the media can read a TOC at all (worth allocating one) */
+static inline int odfs_media_has_toc(odfs_media_t *m)
+{
+    return m->ops->read_toc != NULL;
+}
+
 static inline odfs_err_t odfs_media_read_toc(odfs_media_t *m, odfs_toc_t *toc)
 {
     if (!m->ops->read_toc)

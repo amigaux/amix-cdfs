@@ -213,9 +213,9 @@ static odfs_err_t amix_kern_submit(amix_kern_ctx_t *ctx,
         return ODFS_ERR_INVAL;
     }
 
-    /* odfs_calloc = kmem_zalloc(KM_SLEEP): globally-mapped, zeroed — the
-     * whole-sdcom zeroing gsioctl does is covered by the calloc. Process
-     * context only, so blocking for memory is fine (same as the read bounce). */
+    /* odfs_calloc = kmem_zalloc(KM_NOSLEEP): globally-mapped, zeroed — the
+     * whole-sdcom zeroing gsioctl does is covered by the calloc. Under
+     * memory pressure the command fails with ODFS_ERR_NOMEM. */
     req = (amix_kern_req_t *)odfs_calloc(1, sizeof(*req));
     if (req == 0)
         return ODFS_ERR_NOMEM;
