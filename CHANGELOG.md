@@ -1,3 +1,10 @@
+## 2026-10-31 — cdfs is a demand-class module, loaded at the first mount; kabi 1.4 (3f84217, f2fc390)
+
+The module's keys say class=demand with fs=cdfs, so on a kabi 1.4 kernel the first `mount -F cdfs` loads it through
+the core's stub vfssw row; it is no longer loaded at boot, and `disable` in modreg.local.d still turns it off. Both
+objects carry kabi 1.4 (k30 ecfe560c, k46 2af81d8c, 98 935 bytes each, 69 704-byte image); module version 1.1.0-1.
+The module Makefile's default kit is ../amix/kernel/dlm. It needs kbootset -31 or later.
+
 ## 2026-10-27 — cdfs module: the k46 object passes modcheck with PAGESHIFT_OK (3418217)
 
 The seven CD-sector divisions (offset / 2048) are waived per function in the module Makefile (amix-dlm 8fc87de's modcheck -w):
