@@ -1,3 +1,13 @@
+## 2026-10-31 — cdfs never sleeps for kernel memory; large directories are not rebuilt on every call; module 1.1.0-2 (6ca3804, ed3aee8, f47fce0, 11aaedc, dcbdadf, d423a00, 1a286a7)
+
+Every kmem request in the AMIX kernel arm is KM_NOSLEEP and checked, so memory pressure gives ENOMEM: odfs_malloc and
+odfs_calloc, cdfs_getnode (with a real ENOMEM for a symlink's side data), readdir and readlink, and the read buffer,
+now 4096 bytes from the big pool instead of an oversize request. The directory cache grows only up to its budget, and
+a directory too big for it is remembered instead of being enumerated again on every getdents and lookup. A namefix
+chunk is a 4096-byte request; Rock Ridge readdir allocates one rr_info per call; the kernel has no per-sector
+block-cache fallback (the mount fails with ENOMEM); media without read_toc gets no TOC allocations. Objects k30
+a0ee4063, k46 516191f7, 99 152 B, image 69 904 B, kabi 1.4; held after mount about 95.6 KB.
+
 ## 2026-10-31 — cdfs is a demand-class module, loaded at the first mount; kabi 1.4 (3f84217, f2fc390)
 
 The module's keys say class=demand with fs=cdfs, so on a kabi 1.4 kernel the first `mount -F cdfs` loads it through
