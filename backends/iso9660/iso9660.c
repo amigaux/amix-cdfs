@@ -423,6 +423,10 @@ static odfs_err_t iso_readdir(void *backend_ctx,
     int lowercase = ctx->lowercase;
     odfs_namefix_state_t namefix;
     odfs_node_t *node;
+#if ODFS_FEATURE_ROCK_RIDGE
+    rr_info_t *rr = NULL;
+#endif
+    odfs_err_t err = ODFS_OK;
 
     ODFS_TRACE(log, ODFS_SUB_ISO,
                 "readdir: LBA %" PRIu32 ", size %" PRIu32, dir_lba, dir_size);
@@ -439,12 +443,24 @@ static odfs_err_t iso_readdir(void *backend_ctx,
         return ODFS_ERR_NOMEM;
     }
 
+#if ODFS_FEATURE_ROCK_RIDGE
+    /* rr_info_t is ~1.1 KB (two 512-byte name/target buffers): on the heap,
+     * never the small SVR4/AMIX kernel stack, and one per call rather than
+     * one per record. rr_parse() clears it before every record. */
+    if (ctx->has_rock_ridge) {
+        rr = odfs_malloc(sizeof(*rr));
+        if (rr == NULL) {
+            err = ODFS_ERR_NOMEM;
+            goto out;
+        }
+    }
+#endif
+
     while (offset < dir_size) {
         uint32_t entry_start = offset;
         uint32_t sector_lba = dir_lba + (offset / ISO_SECTOR_SIZE);
         uint32_t sector_off = offset % ISO_SECTOR_SIZE;
         const uint8_t *sector;
-        odfs_err_t err;
         const uint8_t *rec;
         size_t avail;
         const uint8_t *sua;
@@ -453,11 +469,8 @@ static odfs_err_t iso_readdir(void *backend_ctx,
         uint32_t next_offset;
 
         err = odfs_cache_read(cache, sector_lba, &sector);
-        if (err != ODFS_OK) {
-            odfs_namefix_destroy(&namefix);
-            odfs_free(node);
-            return err;
-        }
+        if (err != ODFS_OK)
+            goto out;
 
         rec = sector + sector_off;
         avail = ISO_SECTOR_SIZE - sector_off;
@@ -492,21 +505,15 @@ static odfs_err_t iso_readdir(void *backend_ctx,
             err = odfs_iso_merge_multi_extent(cache, log, ctx->session_start,
                                               dir_lba, dir_size, &next_offset,
                                               ctx->high_sierra, rec, node);
-            if (err != ODFS_OK) {
-                odfs_namefix_destroy(&namefix);
-                odfs_free(node);
-                return err;
-            }
+            if (err != ODFS_OK)
+                goto out;
 
             /* the merge walk may have evicted our sector — re-pin the
              * System Use Area pointer before Rock Ridge parsing */
             if (sua_off > 0) {
                 err = odfs_cache_read(cache, sector_lba, &sector);
-                if (err != ODFS_OK) {
-                    odfs_namefix_destroy(&namefix);
-                    odfs_free(node);
-                    return err;
-                }
+                if (err != ODFS_OK)
+                    goto out;
                 rec = sector + sector_off;
                 sua = rec + sua_off;
             }
@@ -514,30 +521,15 @@ static odfs_err_t iso_readdir(void *backend_ctx,
 
 #if ODFS_FEATURE_ROCK_RIDGE
         /* apply Rock Ridge overrides */
-        if (ctx->has_rock_ridge && sua && sua_len > 0) {
-            /* rr_info_t is ~1.1 KB (two 512-byte name/target buffers); build it
-             * on the heap, never the small SVR4/AMIX kernel stack. Scoped to
-             * this block, so it needs no bookkeeping on the loop's exits.
-             * odfs_calloc (kmem_zalloc) pre-zeroes it: rr_parse memsets it too,
-             * but this guarantees the tail (is_relocated/has_child_link, offset
-             * >1024) is clear even if a large in-place clear is unreliable — a
-             * stray is_relocated would skip every child and read as empty. */
-            rr_info_t *rr = odfs_calloc(1, sizeof(*rr));
-            if (rr == NULL) {
-                odfs_namefix_destroy(&namefix);
-                odfs_free(node);
-                return ODFS_ERR_NOMEM;
-            }
+        if (rr != NULL && sua && sua_len > 0) {
             rr_parse(sua, sua_len, ctx->rr_skip, rr, cache);
 
             /* skip relocated entries (RE) */
             if (rr->is_relocated) {
-                odfs_free(rr);
                 offset = next_offset;
                 continue;
             }
             iso_apply_rr(node, rr, ctx->session_start, 1);
-            odfs_free(rr);
         }
 #endif
 
@@ -549,11 +541,8 @@ static odfs_err_t iso_readdir(void *backend_ctx,
         }
 
         err = odfs_namefix_apply(&namefix, node->name, sizeof(node->name));
-        if (err != ODFS_OK) {
-            odfs_namefix_destroy(&namefix);
-            odfs_free(node);
-            return err;
-        }
+        if (err != ODFS_OK)
+            goto out;
 
         /* advance offset BEFORE callback so resume_offset points
            to the entry AFTER the one we're about to deliver */
@@ -567,17 +556,20 @@ static odfs_err_t iso_readdir(void *backend_ctx,
             /* callback stopped iteration — save resume point */
             if (resume_offset)
                 *resume_offset = offset;
-            odfs_namefix_destroy(&namefix);
-            odfs_free(node);
-            return err;
+            goto out;
         }
     }
 
     if (resume_offset)
         *resume_offset = dir_size; /* exhausted */
+
+out:
+#if ODFS_FEATURE_ROCK_RIDGE
+    odfs_free(rr);
+#endif
     odfs_namefix_destroy(&namefix);
     odfs_free(node);
-    return ODFS_OK;
+    return err;
 }
 
 /* ------------------------------------------------------------------ */
