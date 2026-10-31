@@ -68,7 +68,23 @@ typedef struct odfs_meta_cache_stats {
     uint32_t builds;       /* directories cached */
     uint32_t build_fails;  /* build abandoned (size/memory/error) */
     uint32_t evictions;    /* directories evicted */
+    uint32_t neg_hits;     /* builds skipped: the directory failed before */
 } odfs_meta_cache_stats_t;
+
+/*
+ * Directories whose build failed for size or memory. A directory that
+ * does not fit the budget would otherwise be enumerated up to the budget
+ * and thrown away again on every readdir and lookup. Remembered in a
+ * small ring, forgotten when the cache is flushed or destroyed.
+ */
+#define ODFS_META_NEG_SLOTS 8
+
+typedef struct odfs_meta_neg {
+    uint32_t dir_lba;
+    uint32_t dir_length;
+    uint8_t  dir_backend;
+    uint8_t  used;
+} odfs_meta_neg_t;
 
 typedef struct odfs_meta_cache {
     odfs_meta_dir_t *lru_head;    /* most recently used */
@@ -76,6 +92,8 @@ typedef struct odfs_meta_cache {
     uint32_t          budget;     /* bytes; 0 disables the cache */
     uint32_t          total;      /* bytes currently held */
     odfs_meta_cache_stats_t stats;
+    odfs_meta_neg_t   neg[ODFS_META_NEG_SLOTS];
+    uint32_t          neg_next;   /* next ring slot to overwrite */
 } odfs_meta_cache_t;
 
 void odfs_meta_cache_init(odfs_meta_cache_t *mc, uint32_t budget_bytes);
@@ -86,7 +104,8 @@ void odfs_meta_cache_flush(odfs_meta_cache_t *mc);
  * Serve a readdir through the cache, building the directory on first
  * use. Returns ODFS_ERR_UNSUPPORTED when the request must go to the
  * backend instead (untagged continuation cookie, uncacheable or
- * oversized directory, build failure).
+ * oversized directory, build failure, or a directory whose build failed
+ * for size or memory before).
  */
 odfs_err_t odfs_meta_readdir(odfs_meta_cache_t *mc,
                              const odfs_backend_ops_t *ops,

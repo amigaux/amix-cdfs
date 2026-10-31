@@ -70,6 +70,39 @@ void odfs_meta_cache_flush(odfs_meta_cache_t *mc)
 {
     while (mc->lru_tail)
         meta_evict(mc, mc->lru_tail);
+    memset(mc->neg, 0, sizeof(mc->neg));
+    mc->neg_next = 0;
+}
+
+/* ------------------------------------------------------------------ */
+/* failed builds                                                       */
+/* ------------------------------------------------------------------ */
+
+static int meta_neg_find(const odfs_meta_cache_t *mc, const odfs_node_t *dir)
+{
+    uint32_t i;
+
+    for (i = 0; i < ODFS_META_NEG_SLOTS; i++) {
+        const odfs_meta_neg_t *n = &mc->neg[i];
+
+        if (n->used &&
+            n->dir_lba == dir->extent.lba &&
+            n->dir_length == dir->extent.length &&
+            n->dir_backend == (uint8_t)dir->backend)
+            return 1;
+    }
+    return 0;
+}
+
+static void meta_neg_add(odfs_meta_cache_t *mc, const odfs_node_t *dir)
+{
+    odfs_meta_neg_t *n = &mc->neg[mc->neg_next];
+
+    n->dir_lba = dir->extent.lba;
+    n->dir_length = dir->extent.length;
+    n->dir_backend = (uint8_t)dir->backend;
+    n->used = 1;
+    mc->neg_next = (mc->neg_next + 1u) % ODFS_META_NEG_SLOTS;
 }
 
 void odfs_meta_cache_destroy(odfs_meta_cache_t *mc)
@@ -164,7 +197,7 @@ typedef struct meta_build_ctx {
     uint32_t           pool_len;
     uint32_t           pool_cap;
     uint32_t           budget;
-    int                failed;
+    int                failed;    /* over budget or out of memory */
 } meta_build_ctx_t;
 
 static void *meta_grow(void *old, size_t old_bytes, size_t new_bytes)
@@ -180,19 +213,40 @@ static void *meta_grow(void *old, size_t old_bytes, size_t new_bytes)
     return p;
 }
 
-static uint32_t meta_pool_add(meta_build_ctx_t *bc, const char *s)
+/*
+ * Next capacity: double from `first`, but never past `limit`, the most
+ * the budget can still hold. The caller has checked that `need` fits
+ * under `limit`, so the result is always at least `need`. Without the
+ * clamp a directory near the budget doubled its arrays well past it
+ * before the budget check failed the build.
+ */
+static uint32_t meta_next_cap(uint32_t cap, uint32_t need,
+                              uint32_t first, uint32_t limit)
 {
-    size_t len = strlen(s) + 1u;
+    uint32_t new_cap = cap ? cap : first;
+
+    while (new_cap < need && new_cap <= limit / 2u)
+        new_cap *= 2u;
+    if (new_cap < need || new_cap > limit)
+        new_cap = limit;
+    return new_cap;
+}
+
+/* `limit` is the largest the pool may grow to within the budget */
+static uint32_t meta_pool_add(meta_build_ctx_t *bc, const char *s,
+                              size_t len, uint32_t limit)
+{
     uint32_t off;
 
     if (bc->pool_len + len > bc->pool_cap) {
-        uint32_t new_cap = bc->pool_cap ? bc->pool_cap * 2u : 1024u;
+        uint32_t new_cap = meta_next_cap(bc->pool_cap,
+                                         bc->pool_len + (uint32_t)len,
+                                         1024u, limit);
+        char *grown = meta_grow(bc->pool, bc->pool_len, new_cap);
 
-        while (new_cap < bc->pool_len + len)
-            new_cap *= 2u;
-        bc->pool = meta_grow(bc->pool, bc->pool_len, new_cap);
-        if (!bc->pool)
+        if (!grown)
             return META_NO_COMMENT;
+        bc->pool = grown;
         bc->pool_cap = new_cap;
     }
     off = bc->pool_len;
@@ -206,15 +260,30 @@ static odfs_err_t meta_build_cb(const odfs_node_t *entry, void *ctx)
     meta_build_ctx_t *bc = ctx;
     odfs_meta_entry_t *e;
     uint32_t off;
+    size_t name_len = strlen(entry->name) + 1u;
+    size_t comment_len = entry->amiga_as.has_comment ?
+                         strlen(entry->amiga_as.comment) + 1u : 0;
+    size_t fixed = sizeof(odfs_meta_dir_t) +
+                   (size_t)(bc->count + 1u) * sizeof(*bc->entries);
+
+    /* fail before allocating anything when this entry cannot fit */
+    if (fixed > bc->budget ||
+        bc->budget - fixed < (size_t)bc->pool_len + name_len + comment_len)
+        goto fail;
 
     if (bc->count >= bc->cap) {
-        uint32_t new_cap = bc->cap ? bc->cap * 2u : 32u;
+        uint32_t limit = (uint32_t)((bc->budget - sizeof(odfs_meta_dir_t) -
+                                     bc->pool_len - name_len - comment_len) /
+                                    sizeof(*bc->entries));
+        uint32_t new_cap = meta_next_cap(bc->cap, bc->count + 1u, 32u, limit);
+        odfs_meta_entry_t *grown;
 
-        bc->entries = meta_grow(bc->entries,
-                                (size_t)bc->count * sizeof(*bc->entries),
-                                (size_t)new_cap * sizeof(*bc->entries));
-        if (!bc->entries)
+        grown = meta_grow(bc->entries,
+                          (size_t)bc->count * sizeof(*bc->entries),
+                          (size_t)new_cap * sizeof(*bc->entries));
+        if (!grown)
             goto fail;
+        bc->entries = grown;
         bc->cap = new_cap;
     }
 
@@ -232,7 +301,8 @@ static odfs_err_t meta_build_cb(const odfs_node_t *entry, void *ctx)
     if (entry->amiga_as.has_protection)
         memcpy(e->protection, entry->amiga_as.protection, 4);
 
-    off = meta_pool_add(bc, entry->name);
+    off = meta_pool_add(bc, entry->name, name_len,
+                        (uint32_t)(bc->budget - fixed));
     if (off == META_NO_COMMENT)
         goto fail;
     e->name_off = off;
@@ -240,18 +310,14 @@ static odfs_err_t meta_build_cb(const odfs_node_t *entry, void *ctx)
     e->has_comment = entry->amiga_as.has_comment;
     e->comment_off = META_NO_COMMENT;
     if (entry->amiga_as.has_comment) {
-        off = meta_pool_add(bc, entry->amiga_as.comment);
+        off = meta_pool_add(bc, entry->amiga_as.comment, comment_len,
+                            (uint32_t)(bc->budget - fixed));
         if (off == META_NO_COMMENT)
             goto fail;
         e->comment_off = off;
     }
 
     bc->count++;
-
-    if (sizeof(odfs_meta_dir_t) +
-        (size_t)bc->count * sizeof(*bc->entries) + bc->pool_len > bc->budget)
-        goto fail;
-
     return ODFS_OK;
 
 fail:
@@ -261,14 +327,17 @@ fail:
 
 /*
  * Enumerate the directory through the backend and pack the result into
- * a single allocation. Returns NULL if the directory cannot be cached.
+ * a single allocation. Returns NULL if the directory cannot be cached;
+ * *size_fail is set when the reason was the budget or memory (not a
+ * backend error), which the caller remembers.
  */
 static odfs_meta_dir_t *meta_build(odfs_meta_cache_t *mc,
                                    const odfs_backend_ops_t *ops,
                                    void *backend_ctx,
                                    odfs_cache_t *block_cache,
                                    odfs_log_state_t *log,
-                                   const odfs_node_t *dir)
+                                   const odfs_node_t *dir,
+                                   int *size_fail)
 {
     meta_build_ctx_t bc;
     odfs_meta_dir_t *d = NULL;
@@ -276,19 +345,26 @@ static odfs_meta_dir_t *meta_build(odfs_meta_cache_t *mc,
     size_t entry_bytes;
     size_t total;
 
+    *size_fail = 0;
     memset(&bc, 0, sizeof(bc));
     bc.budget = mc->budget;
 
     err = ops->readdir(backend_ctx, block_cache, log, dir,
                        meta_build_cb, &bc, NULL);
-    if (bc.failed || err != ODFS_OK)
+    if (bc.failed) {
+        *size_fail = 1;
+        goto out;
+    }
+    if (err != ODFS_OK)
         goto out;
 
     entry_bytes = (size_t)bc.count * sizeof(odfs_meta_entry_t);
     total = sizeof(*d) + entry_bytes + bc.pool_len;
     d = odfs_malloc(total);
-    if (!d)
+    if (!d) {
+        *size_fail = 1;
         goto out;
+    }
 
     memset(d, 0, sizeof(*d));
     d->dir_lba = dir->extent.lba;
@@ -299,8 +375,10 @@ static odfs_meta_dir_t *meta_build(odfs_meta_cache_t *mc,
     d->bytes = (uint32_t)total;
     d->entries = (odfs_meta_entry_t *)(d + 1);
     d->pool = (char *)d->entries + entry_bytes;
-    memcpy(d->entries, bc.entries, entry_bytes);
-    memcpy(d->pool, bc.pool, bc.pool_len);
+    if (entry_bytes)
+        memcpy(d->entries, bc.entries, entry_bytes);
+    if (bc.pool_len)
+        memcpy(d->pool, bc.pool, bc.pool_len);
 
 out:
     odfs_free(bc.entries);
@@ -315,7 +393,8 @@ out:
 /*
  * Find or build the cached form of a directory. *orphan_out is set when
  * the built directory could not be kept within budget; the caller must
- * free it after use.
+ * free it after use. A directory whose build failed for size or memory
+ * is not built again until the cache is flushed.
  */
 static odfs_meta_dir_t *meta_get(odfs_meta_cache_t *mc,
                                  const odfs_backend_ops_t *ops,
@@ -326,6 +405,7 @@ static odfs_meta_dir_t *meta_get(odfs_meta_cache_t *mc,
                                  int *orphan_out)
 {
     odfs_meta_dir_t *d;
+    int size_fail;
 
     *orphan_out = 0;
 
@@ -336,9 +416,17 @@ static odfs_meta_dir_t *meta_get(odfs_meta_cache_t *mc,
     }
     mc->stats.misses++;
 
-    d = meta_build(mc, ops, backend_ctx, block_cache, log, dir);
-    if (!d)
+    if (meta_neg_find(mc, dir)) {
+        mc->stats.neg_hits++;
         return NULL;
+    }
+
+    d = meta_build(mc, ops, backend_ctx, block_cache, log, dir, &size_fail);
+    if (!d) {
+        if (size_fail)
+            meta_neg_add(mc, dir);
+        return NULL;
+    }
 
     if (d->bytes > mc->budget) {
         *orphan_out = 1;
