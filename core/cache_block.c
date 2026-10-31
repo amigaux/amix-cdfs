@@ -177,6 +177,15 @@ static int32_t cache_pop_free(odfs_cache_t *cache)
     return idx;
 }
 
+/*
+ * 1: when the one slab cannot be allocated, give every entry its own
+ * sector buffer instead. A platform whose large allocations come from a
+ * scarce map turns it off (odfs/config.h) and the init fails with NOMEM.
+ */
+#ifndef ODFS_CACHE_SLAB_FALLBACK
+#define ODFS_CACHE_SLAB_FALLBACK 1
+#endif
+
 odfs_err_t odfs_cache_init(odfs_cache_t *cache,
                              odfs_media_t *media,
                              uint32_t capacity)
@@ -274,6 +283,7 @@ odfs_err_t odfs_cache_init(odfs_cache_t *cache,
             cache->entries[i].valid = 0;
         }
     } else {
+#if ODFS_CACHE_SLAB_FALLBACK
         for (i = 0; i < capacity; i++) {
             cache->entries[i].data = odfs_malloc_aligned(sector_size,
                                                          sector_size);
@@ -289,6 +299,14 @@ odfs_err_t odfs_cache_init(odfs_cache_t *cache,
             }
             cache->entries[i].valid = 0;
         }
+#else
+        (void)j;
+        odfs_free(cache->buckets);
+        odfs_free(cache->next);
+        odfs_free(cache->entries);
+        memset(cache, 0, sizeof(*cache));
+        return ODFS_ERR_NOMEM;
+#endif
     }
 
     cache->capacity = capacity;

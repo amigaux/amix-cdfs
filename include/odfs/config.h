@@ -186,6 +186,15 @@
   #ifndef ODFS_NO_MUL64
     #define ODFS_NO_MUL64 1
   #endif
+  /*
+   * No per-sector fallback when the block cache's slab cannot be had: the
+   * slab fails only when the kernel map has no free run long enough, and
+   * one oversize buffer per sector would then take more of the same map.
+   * The mount fails with ENOMEM instead (core/cache_block.c).
+   */
+  #ifndef ODFS_CACHE_SLAB_FALLBACK
+    #define ODFS_CACHE_SLAB_FALLBACK 0
+  #endif
 #endif
 
 /* host builds for testing */
