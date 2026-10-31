@@ -33,8 +33,19 @@
 #include "odfs/alloc.h"     /* odfs_calloc/odfs_free (node scratch off the stack) */
 #include <string.h>         /* strlen, memset, memcpy */
 
-/* On-stack kernel space is scarce; read/dir/link scratch comes from kmem. */
-#define CDFS_RDBUF 8192
+/*
+ * On-stack kernel space is scarce; read/dir/link scratch comes from kmem.
+ *
+ * The read staging buffer is 4096 bytes, the largest request the stock kmem
+ * serves from its big buddy pool: a larger one is "oversize", whole
+ * kernel-map pages that a fragmented map may not have. The media sends one
+ * sector per SCSI command (AMIX_KERN_MAX_XFER), so a smaller buffer adds no
+ * commands. DMA safety does not depend on its alignment: the media bounces
+ * any target that is not 2048-aligned and refuses a transfer that crosses a
+ * page. A big-pool block is size-aligned within 4096-aligned pool regions,
+ * so whole sectors still go straight into it.
+ */
+#define CDFS_RDBUF 4096
 
 /* ---- simple ops ----------------------------------------------------- */
 
@@ -73,7 +84,7 @@ static int cdfs_read(struct vnode *vp, struct uio *uiop, int ioflag, cred_t *cr)
     if (uiop->uio_offset < 0)
         return EINVAL;
 
-    buf = (char *)kmem_alloc((size_t)CDFS_RDBUF, KM_SLEEP);
+    buf = (char *)kmem_alloc((size_t)CDFS_RDBUF, KM_NOSLEEP);
     if (buf == 0)
         return ENOMEM;
 
