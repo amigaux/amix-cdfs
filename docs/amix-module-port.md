@@ -74,9 +74,10 @@ the static object stays buildable.
 - **What runs at mount:** nothing changes. `mount -F cdfs` resolves the row
   through `vfs_getvfssw` in the grown table, and `VFS_MOUNT` dispatches to
   `cdfs_mount`. Sleeping in the SCSI wait is ordinary process context. Kernel
-  memory follows C3-6 §1.1: the largest `KM_SLEEP` request is the 32-block
-  cache slab of 67 596 bytes (`cdfs_vfsops.c:180`). The `cdfs_vfs` struct, over
-  4 KiB, is already `KM_NOSLEEP` (`:279`).
+  memory follows C3-6 §1.1: every cdfs kmem request is `KM_NOSLEEP` and
+  checked, so memory pressure gives `ENOMEM`, never a sleep. The largest
+  request at mount is the 32-block cache slab of 67 596 bytes; a directory
+  build grows only up to the 96 KiB metadata budget.
 
 ### 2.1 Kernel names the AMIX target imports
 

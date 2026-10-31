@@ -162,6 +162,18 @@ until reboot.
   2 sectors per SCSI command instead of 4. The 8 KiB staging buffer is still a
   `KM_SLEEP` request of 2 pages, held only for one `read(2)`.
 
+### Applied later: no cdfs request sleeps
+
+- The media now sends one sector per SCSI command, so `CDFS_RDBUF` is 4096
+  (a big-pool block, not oversize) and `KM_NOSLEEP`.
+- Every kmem request cdfs makes is `KM_NOSLEEP` and checked: the kernel arm
+  of `odfs/alloc.h`, and `cdfs_getnode`, `cdfs_readdir`, `cdfs_readlink`.
+- The kernel arm has no per-sector fallback for the slab
+  (`ODFS_CACHE_SLAB_FALLBACK` 0): the mount fails with `ENOMEM`.
+- A namefix chunk is a 4096-byte request, not 4116 (two oversize pages).
+- The directory cache grows only up to its budget, and a directory that does
+  not fit is remembered, not rebuilt on every `getdents` and lookup.
+
 ## 5. Reproducer on the box
 
 Get the symbol addresses from the kernel that is actually booted. On the host,
