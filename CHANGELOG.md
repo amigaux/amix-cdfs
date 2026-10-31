@@ -4,6 +4,11 @@ The seven CD-sector divisions (offset / 2048) are waived per function in the mod
 `ok (k46.1.2, boot, 69704 bytes); 7 page-geometry shift(s) waived in …`; k30 ok as before; objects unchanged (3038f6fd /
 2808fcd9); harness and host test green. Kits must be minted from amix-dlm 8fc87de or later.
 
+## 2026-10-31 — docs: public text cleanup (95bbb71)
+
+docs/amix-module-port.md states why cdfs is a boot-class module (C4-6 v2 §5) without plan pointers; the local tool
+ignores move from .gitignore to .git/info/exclude. Docs only; the objects do not change.
+
 ## 2026-10-27 — cdfs as a boot-class loadable filesystem module, kabi 1.2 (f8875bb, e1bfa50, d66beb9, ef96470)
 
 -DCDFS_MODULE from the same sources (static libcdfskern.o byte-identical, 694a6e14). init takes (row, index) from vfs_register;
