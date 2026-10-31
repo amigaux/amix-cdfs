@@ -1,8 +1,5 @@
 build/
 **/.DS_Store
-# local session/tooling files — never tracked
-/CLAUDE.md
-/.claude/
 # local build inputs and scratch images
 *.hdf
 *.adf

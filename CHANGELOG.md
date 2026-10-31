@@ -20,7 +20,7 @@ Under amix-dlm C4-6 v2: _load → vfs_register, init with (row, index); class bo
 pinned; packages cdfs-k30/-k46 (cdfs30/cdfs46); the kernel-import inventory from `nm -u` on libcdfskern.o (33 names) against
 DDI 1.2: sdqueue, sdopen, vn_rele, copyinstr, getudev and eight fs_* helpers are missing; the ABI text carries no vfs/vnode/
 vattr/uio/dirent/statvfs layouts; the kit's sd.h says SDCARDS 2 against C4-1's 4; the kit's -traditional cannot compile the
-ANSI code (object built with the repo's flags, passed as EXTRA). Ten open questions for dlm. Docs only.
+ANSI code (object built with the repo's flags, passed as EXTRA). Ten open questions for amix-dlm. Docs only.
 
 ## 2026-10-13 — CI: upstream's "ODFileSystem CI" workflow runs only in reinauer/ODFileSystem (748b0d6)
 

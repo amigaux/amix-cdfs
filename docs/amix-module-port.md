@@ -122,8 +122,8 @@ Not used at all: the page cache (`pvn_*`, `segmap`, `page_*`), `bdevsw`, `strate
   root filesystem: `cdfs_mountroot` returns `EROFS` (`cdfs_vfsops.c:462-465`).
 - **Pinned:** `unload=never` (C4-6 §1).
 
-Recommendation: boot class by default on disk-rooted boxes, as C4-6 v2
-says. amix-dlm's stage-4 plan rows still say "demand" (see question 3).
+Recommendation: boot class by default on disk-rooted boxes, as C4-6 v2 §5
+says; demand class would leave `cdfs` never loaded (see question 3).
 
 ## 4. k30 and k46: the vfs/vnode ABI
 
@@ -216,10 +216,10 @@ disassembly scan on both objects (no `-m68040`: the code stays 68020 with
 2. **ABI text.** The vfs/vnode/vattr/uio/dirent/statvfs/mounta/fid/sdcom
    layouts are not fingerprinted. *Recommend:* add `offs` lines for them to the
    1.2 text before it closes.
-3. **Boot by default?** C4-6 v2 §5 says boot class. amix-dlm's
-   `docs/plan/stage-4.md` (S4-42, S4-72) and `stage-4-exit.md` still say
-   "demand". *Recommend:* boot class on disk-rooted boxes, with
-   `disable` for boxes without a drive, and those rows aligned to it.
+3. **Boot by default?** C4-6 v2 §5 says boot class. Demand class cannot
+   work for a filesystem: the stock mount path has no load-by-type hook, so
+   nothing would ever load `cdfs`. *Recommend:* boot class on disk-rooted
+   boxes, with `disable` for boxes without a drive.
 4. **One object, two classes.** The class is in `.moddata` (C3-5 §3), but
    `cdfs` is boot on disk and root on the CD medium. *Recommend:* let
    `kbootset` place a `class=boot` module in the root class on a generation
