@@ -31,10 +31,11 @@ dev_t cdfs_devbase = (dev_t)0;
  * It latches the device major exactly as the static cdfsinit does: one
  * getudev() major for the life of the boot, L_MAXMAJ if they ran out.
  *
- * Context: the module's _load. For a boot-class load that is process context
- * at the first sysinit entry; for a root-class load it is the core's root
- * pass, at level 7 with the clock stopped. Neither getudev() nor this routine
- * sleeps or allocates, so it is safe in both.
+ * Context: the module's _load. For a demand-class load that is the process
+ * context of the first cdfs mount system call; for a boot-class load, the
+ * first sysinit entry; for a root-class load, the core's root pass, at level
+ * 7 with the clock stopped. Neither getudev() nor this routine sleeps or
+ * allocates, so it is safe in each.
  */
 int cdfsinit(struct vfssw *vswp, int idx)
 {

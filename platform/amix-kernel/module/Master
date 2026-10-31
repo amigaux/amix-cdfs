@@ -1,6 +1,6 @@
 # generated from keys by module/Makefile
 $modtype misc
-$class boot
+$class demand
 $match always
 $fs cdfs
 $unload never

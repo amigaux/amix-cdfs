@@ -11,7 +11,7 @@
 #   cannot read a section of type 13);
 # - fs= equals the name cdfs_mod.c passes to vfs_register (CDFS_FSNAME);
 # - the object runs in place (amix-dlm C4-4 section 4): the kit checker's
-#   own root-class rule, applied to this boot-class object, so that the same
+#   own root-class rule, applied to this demand-class object, so that the same
 #   object can be placed by boot2 if a generation promotes it to the root
 #   class;
 # - prints the .moddata keys and the sha256, one line each.

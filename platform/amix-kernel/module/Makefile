@@ -10,11 +10,12 @@
 #   make -C platform/amix-kernel/module test   the host test (hosttest.sh)
 #   make -C platform/amix-kernel/module clean
 #
-# DLM is the amix-dlm checkout whose kits are built (`make kit` there gives
-# build/kit/k30 and build/kit/k46); KIT_k30 / KIT_k46 name a kit directly.
-# The kits must be kabi k30.1.2 / k46.1.2 or later (vfs_register, sdqueue and
-# the other names cdfs imports). The pinned cross tools (m68k-cbm-sysv4-*)
-# and python3 must be on PATH.
+# DLM is the amix checkout's kernel/dlm whose kits are built (`make kit` there
+# gives build/kit/k30 and build/kit/k46); KIT_k30 / KIT_k46 name a kit
+# directly. The kits must be kabi k30.1.4 / k46.1.4 or later: the module is
+# demand class with fs=, which the kit tags minor 4 (a kernel whose core
+# loads a filesystem at its first mount). The pinned cross tools
+# (m68k-cbm-sysv4-*) and python3 must be on PATH.
 #
 # Two compilers' worth of flags, one compiler: the portable sources are ANSI
 # C and the kit compiles -traditional, so the repository's Makefile builds
@@ -24,7 +25,7 @@
 # from keys; it has no $cpu, so the kit gives each line its own.
 
 TOP := $(abspath $(dir $(lastword $(MAKEFILE_LIST)))../../..)
-DLM ?= $(abspath $(TOP)/../amix-dlm)
+DLM ?= $(abspath $(TOP)/../amix/kernel/dlm)
 LINES = k30 k46
 kit = $(or $(KIT_$(1)),$(DLM)/build/kit/$(1))
 

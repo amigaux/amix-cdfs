@@ -8,9 +8,9 @@
  * linked in as the kit's EXTRA.
  *
  * _load registers the filesystem type and does nothing else: no I/O, no
- * sleep, no allocation, so it is safe both at a boot-class load (the first
- * sysinit entry) and in the root pass, should a generation place the module
- * there. vfs_register() runs cdfsinit(row, index) once (cdfs_modlocal.c).
+ * sleep, no allocation, so it is safe both at a demand-class load (in the
+ * first `mount -F cdfs`, which the core's stub vfssw row turns into the
+ * load) and in the root pass, should a generation place the module there. vfs_register() runs cdfsinit(row, index) once (cdfs_modlocal.c).
  * There is no _unload (the module is pinned: unload=never) and no _halt
  * (cdfs holds no device state between requests).
  *
