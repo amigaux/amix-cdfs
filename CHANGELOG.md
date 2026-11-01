@@ -1,3 +1,10 @@
+## 2026-11-01 — a directory replayed from the metadata cache is pinned; module 1.1.0-4 (262bcb1, c47ca47)
+
+A listing replayed from memory hands entries to a callback that can sleep (uiomove); if another process evicted the
+directory meanwhile, the replay read freed memory. A replay now pins the cached directory: eviction takes it out of
+the cache and its budget, and the last unpin frees it. Objects k30 be3ed0a3, k46 b4e5a728, 103 209 B, image
+73 144 B, kabi 1.4.
+
 ## 2026-11-01 — `ls -l` on large Rock Ridge directories is linear, not quadratic; module 1.1.0-3 (fab6040, 1599a4b, 051af08, f224c25, 7533dd3)
 
 A directory too big for the metadata budget whose names needed no collision renames is kept as an index of 12 bytes
