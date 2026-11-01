@@ -332,12 +332,12 @@ static odfs_err_t cdfs_readdir_cb(const odfs_node_t *entry, void *ctx)
  *
  * The cookie in uio_offset is an ENTRY INDEX: 0 = ".", 1 = "..", 2+ = children.
  * (uiomove advances uio_offset by bytes moved as a side effect; this op
- * overwrites uio_offset with the entry-index cursor at the end.) The backend
- * exposes its resume offset only when the visitor callback stops, and SVR4
- * vop_readdir carries no per-open state beyond uio_offset, so children are
- * re-walked from the start each call and the first `skip` are dropped — O(n*k)
- * across a directory, acceptable for a v1 read-only optical fs (the block +
- * parsed-dir caches absorb the re-walk; CD directories are small).
+ * overwrites uio_offset with the entry-index cursor at the end.) The child
+ * index goes to odfs_readdir as a metadata-cache cookie, so the core resumes
+ * there: from the cached directory, from a directory index's position, or
+ * from where the last listing of a large directory stopped. Only where none
+ * of those applies are the children re-walked from the start and the first
+ * `skip` dropped (the callback's skip, kept for that case).
  */
 static int cdfs_readdir(struct vnode *vp, struct uio *uiop, cred_t *cr,
                         int *eofp)
@@ -403,8 +403,18 @@ static int cdfs_readdir(struct vnode *vp, struct uio *uiop, cred_t *cr,
 
         ran_phase2 = 1;
         c.skip = (startidx >= 2u) ? (startidx - 2u) : 0u;
+#if ODFS_FEATURE_CACHE_META
+        {
+            uint32_t cookie = c.skip ? (ODFS_META_COOKIE_TAG | c.skip) : 0u;
+
+            /* the core delivers from child c.skip on */
+            c.seen = c.skip;
+            oe = odfs_readdir(mnt, &cnp->node, cdfs_readdir_cb, &c, &cookie);
+        }
+#else
         oe = odfs_readdir(mnt, &cnp->node, cdfs_readdir_cb, &c,
                           (uint32_t *)0);
+#endif
         if (c.err != 0)
             e = c.err;
         else if (c.full)

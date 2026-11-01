@@ -447,6 +447,17 @@ static object has run on both.
   `CORE_SRCS` compiles into the module, but High Sierra, Joliet, UDF, HFS, HFS+
   and CDDA have not been exercised end to end on hardware — see
   [`docs/amix-known-unknowns.md`](../../docs/amix-known-unknowns.md).
+- **Large directories.** The core keeps each directory that fits its 96 KiB
+  metadata budget whole in memory. An ISO 9660 or Rock Ridge directory too big
+  for that, whose names needed no collision renames, is kept as an index of
+  12 bytes per entry (position and name hash; up to 5457 entries in the
+  budget): a lookup parses one record, and a listing resumes where the last
+  `getdents` stopped, so `ls -l` costs about two passes over the directory.
+  Past the index capacity, the last listing and lookup positions are
+  remembered: listings in batches and lookups in directory order still cost
+  one pass, lookups in another order one pass each. Joliet, UDF and HFS
+  directories over the budget, and directories with renamed names, are walked
+  from the start for every lookup.
 - **The node hash has no bucket locking.** v1 is single-threaded with respect to
   it; SMP hardening is a later step.
 - **`vfs_vget` resolves only currently-cached nodes.** Stateless handle
