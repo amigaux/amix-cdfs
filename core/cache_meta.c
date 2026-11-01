@@ -52,12 +52,35 @@ static void meta_push_head(odfs_meta_cache_t *mc, odfs_meta_dir_t *d)
     mc->lru_head = d;
 }
 
+/*
+ * A replay hands entries to a callback that may sleep (cdfs copies them
+ * out to user space), and while it sleeps another caller may evict the
+ * directory. So a replay pins it: eviction then only takes it out of the
+ * cache and its budget, and the replay's unpin frees it. Costs a counter
+ * per cached directory, where copying the batch out first would cost a
+ * second copy of the directory per listing.
+ */
+static void meta_pin(odfs_meta_dir_t *d)
+{
+    d->pins++;
+}
+
+static void meta_unpin(odfs_meta_dir_t *d)
+{
+    d->pins--;
+    if (d->pins == 0 && d->dead)
+        odfs_free(d);
+}
+
 static void meta_evict(odfs_meta_cache_t *mc, odfs_meta_dir_t *d)
 {
     meta_unlink(mc, d);
     mc->total -= d->bytes;
     mc->stats.evictions++;
-    odfs_free(d);
+    if (d->pins)
+        d->dead = 1;
+    else
+        odfs_free(d);
 }
 
 void odfs_meta_cache_init(odfs_meta_cache_t *mc, uint32_t budget_bytes)
@@ -873,9 +896,11 @@ odfs_err_t odfs_meta_readdir(odfs_meta_cache_t *mc,
         return meta_index_list(d, ops, backend_ctx, block_cache, log, dir,
                                first, callback, cb_ctx, resume_offset);
     if (d) {
-        err = meta_replay(d, callback, cb_ctx, resume_offset);
         if (orphan)
-            odfs_free(d);
+            d->dead = 1;        /* never in the cache: freed by the unpin */
+        meta_pin(d);
+        err = meta_replay(d, callback, cb_ctx, resume_offset);
+        meta_unpin(d);
         return err;
     }
     if (n && n->clean && ops->readdir_at)

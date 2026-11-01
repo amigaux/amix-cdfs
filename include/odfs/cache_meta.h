@@ -75,6 +75,9 @@ typedef struct odfs_meta_dir {
                                           links, nbuckets heads (links and
                                           heads are entry index + 1) */
     uint32_t              nbuckets;    /* INDEX: a power of two */
+    uint16_t              pins;        /* replays using it right now */
+    uint8_t               dead;        /* out of the cache; the last unpin
+                                          frees it */
 } odfs_meta_dir_t;
 
 typedef struct odfs_meta_cache_stats {

@@ -9,6 +9,9 @@
 #include "test_harness.h"
 
 #include <stdio.h>
+#if defined(__GLIBC__)
+#include <malloc.h>     /* mallopt(M_PERTURB): freed memory is overwritten */
+#endif
 
 /* fake backend: a directory of `entries` names "entry00000", ... */
 typedef struct fake_dir {
@@ -411,6 +414,101 @@ TEST(hint_when_too_big_to_index)
                                 "nothere", &out), ODFS_ERR_NOT_FOUND);
     ASSERT_EQ(fa.readdir_calls, 0);
     odfs_meta_cache_destroy(&mc);
+}
+
+/* ------------------------------------------------------------------ */
+/* eviction while a replay is handing out entries                      */
+/* ------------------------------------------------------------------ */
+
+typedef struct evict_ctx {
+    odfs_meta_cache_t *mc;
+    fake_dir_t        *other;
+    odfs_node_t       *other_dir;
+    uint32_t           seen;
+    uint32_t           evict_at;
+    int                how;      /* 0: flush, 1: build another directory */
+    int                bad;
+} evict_ctx_t;
+
+static odfs_err_t evict_cb(const odfs_node_t *entry, void *ctx)
+{
+    evict_ctx_t *ec = ctx;
+    char want[32];
+
+    snprintf(want, sizeof(want), "entry%05u", (unsigned)ec->seen);
+    if (strcmp(entry->name, want) != 0 || entry->extent.lba != 100u + ec->seen)
+        ec->bad = 1;
+    if (ec->seen == ec->evict_at) {
+        /* what another process can do while this one sleeps in uiomove */
+        if (ec->how == 0) {
+            odfs_meta_cache_flush(ec->mc);
+        } else {
+            uint32_t n = 0;
+
+            (void)odfs_meta_readdir(ec->mc, &fake_ops, ec->other, NULL, NULL,
+                                    ec->other_dir, count_cb, &n, NULL);
+        }
+    }
+    ec->seen++;
+    return ODFS_OK;
+}
+
+static void replay_with_eviction(int how, int *_fail_count)
+{
+    odfs_meta_cache_t mc;
+    fake_dir_t fd = { 400, 0 };
+    fake_dir_t other = { 400, 0 };
+    odfs_node_t dir, other_dir;
+    evict_ctx_t ec;
+    uint32_t n = 0;
+
+#if defined(__GLIBC__) && defined(M_PERTURB)
+    mallopt(M_PERTURB, 0xa5);
+#endif
+    fake_dir_node(&dir);
+    fake_dir_node(&other_dir);
+    other_dir.extent.lba = 21;
+    /* room for one of the two directories only */
+    odfs_meta_cache_init(&mc, dir_bytes(400) + 64u);
+
+    /* cache the first directory, then replay it with an eviction midway */
+    ASSERT_OK(odfs_meta_readdir(&mc, &fake_ops, &fd, NULL, NULL, &dir,
+                                count_cb, &n, NULL));
+    ASSERT_EQ(fd.readdir_calls, 1);
+    memset(&ec, 0, sizeof(ec));
+    ec.mc = &mc;
+    ec.other = &other;
+    ec.other_dir = &other_dir;
+    ec.evict_at = 100;
+    ec.how = how;
+    ASSERT_OK(odfs_meta_readdir(&mc, &fake_ops, &fd, NULL, NULL, &dir,
+                                evict_cb, &ec, NULL));
+    ASSERT_EQ(fd.readdir_calls, 1);        /* the replay served it */
+    ASSERT_EQ(ec.seen, 400);
+    ASSERT_EQ(ec.bad, 0);
+    ASSERT_EQ(mc.stats.evictions, 1);
+    ASSERT(mc.total <= mc.budget);
+
+    /* it left the cache: the next listing builds it again */
+    n = 0;
+    ASSERT_OK(odfs_meta_readdir(&mc, &fake_ops, &fd, NULL, NULL, &dir,
+                                count_cb, &n, NULL));
+    ASSERT_EQ(n, 400);
+    ASSERT_EQ(fd.readdir_calls, 2);
+    odfs_meta_cache_destroy(&mc);
+#if defined(__GLIBC__) && defined(M_PERTURB)
+    mallopt(M_PERTURB, 0);
+#endif
+}
+
+TEST(flush_during_replay_keeps_the_replay_whole)
+{
+    replay_with_eviction(0, _fail_count);
+}
+
+TEST(lru_eviction_during_replay_keeps_the_replay_whole)
+{
+    replay_with_eviction(1, _fail_count);
 }
 
 TEST_MAIN()
