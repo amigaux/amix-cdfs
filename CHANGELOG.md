@@ -1,3 +1,11 @@
+## 2026-11-01 — `ls -l` on large Rock Ridge directories is linear, not quadratic; module 1.1.0-3 (fab6040, 1599a4b, 051af08, f224c25, 7533dd3)
+
+A directory too big for the metadata budget whose names needed no collision renames is kept as an index of 12 bytes
+per entry (up to 5457 entries in the budget); a lookup parses one record, and a getdents batch resumes at its own
+entry. Past the index capacity the core remembers where the last listing and lookup stopped. New backend op
+readdir_at (iso9660). On a 3000-entry disc an `ls -l` model goes from 4.76 M to 9 168 record parses and from 370 134
+to 690 sector reads. Objects k30 d93994d3, k46 d008b003, 103 061 B, image 73 048 B, kabi 1.4. tools/amix-dirbench.
+
 ## 2026-10-31 — cdfs never sleeps for kernel memory; large directories are not rebuilt on every call; module 1.1.0-2 (6ca3804, ed3aee8, f47fce0, 11aaedc, dcbdadf, d423a00, 1a286a7)
 
 Every kmem request in the AMIX kernel arm is KM_NOSLEEP and checked, so memory pressure gives ENOMEM: odfs_malloc and
