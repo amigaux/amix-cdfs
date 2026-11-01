@@ -48,18 +48,33 @@ typedef struct odfs_meta_entry {
     uint8_t  protection[4];
 } odfs_meta_entry_t;
 
-/* one cached directory: a single allocation holding entries + strings */
+#define ODFS_META_FULL  0   /* entries + names: served from memory */
+#define ODFS_META_INDEX 1   /* positions + name hashes: served by readdir_at */
+
+/*
+ * One cached directory, a single allocation. FULL holds every entry and
+ * its name. A directory too big for that, whose backend has readdir_at
+ * and whose names needed no collision renames, is kept as an INDEX:
+ * per entry its position and a hash of its name (12 bytes), so a lookup
+ * parses one record and a listing resumes where it left off.
+ */
 typedef struct odfs_meta_dir {
     struct odfs_meta_dir *lru_prev;
     struct odfs_meta_dir *lru_next;
     uint32_t              dir_lba;     /* key: extent identity + backend */
     uint32_t              dir_length;
     uint8_t               dir_backend;
+    uint8_t               kind;        /* ODFS_META_FULL or ODFS_META_INDEX */
     uint32_t              dir_id;      /* dir node id at build time */
     uint32_t              count;
     uint32_t              bytes;       /* total allocation size */
-    odfs_meta_entry_t    *entries;     /* into the same allocation */
-    char                 *pool;        /* into the same allocation */
+    odfs_meta_entry_t    *entries;     /* FULL: into the same allocation */
+    char                 *pool;        /* FULL: into the same allocation */
+    uint32_t             *pos;         /* INDEX: count entry positions, then
+                                          count name hashes, count chain
+                                          links, nbuckets heads (links and
+                                          heads are entry index + 1) */
+    uint32_t              nbuckets;    /* INDEX: a power of two */
 } odfs_meta_dir_t;
 
 typedef struct odfs_meta_cache_stats {
@@ -69,6 +84,8 @@ typedef struct odfs_meta_cache_stats {
     uint32_t build_fails;  /* build abandoned (size/memory/error) */
     uint32_t evictions;    /* directories evicted */
     uint32_t neg_hits;     /* builds skipped: the directory failed before */
+    uint32_t index_builds; /* directories kept as an INDEX */
+    uint32_t hint_scans;   /* scans served from a remembered position */
 } odfs_meta_cache_stats_t;
 
 /*
@@ -76,6 +93,11 @@ typedef struct odfs_meta_cache_stats {
  * does not fit the budget would otherwise be enumerated up to the budget
  * and thrown away again on every readdir and lookup. Remembered in a
  * small ring, forgotten when the cache is flushed or destroyed.
+ *
+ * When such a directory was walked whole with readdir_at and needed no
+ * collision renames (`clean`), the slot also remembers where the last
+ * listing and the last lookup stopped, so the next one starts there:
+ * a listing in batches, and lookups in directory order, cost one pass.
  */
 #define ODFS_META_NEG_SLOTS 8
 
@@ -84,6 +106,11 @@ typedef struct odfs_meta_neg {
     uint32_t dir_length;
     uint8_t  dir_backend;
     uint8_t  used;
+    uint8_t  clean;         /* resuming mid-directory gives readdir's names */
+    uint32_t list_index;    /* listing: the entry it stopped at ... */
+    uint32_t list_offset;   /* ... where that entry starts ... */
+    uint32_t list_next;     /* ... and where the one after it starts */
+    uint32_t look_offset;   /* lookup: where the next scan starts */
 } odfs_meta_neg_t;
 
 typedef struct odfs_meta_cache {
