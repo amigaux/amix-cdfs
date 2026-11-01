@@ -58,7 +58,7 @@ vpath %.c $(TOP)/platform/amix-kernel
 # shifts are CD-sector divisions (offset / 2048), not page arithmetic, so the
 # check is waived in them only (kit KIT_REV 8fc87de or later). A new shift by 11
 # anywhere else must be explained, not added here.
-PAGESHIFT_OK = cdfs_bytes_to_dev_blocks,iso_readdir,iso_readlink,joliet_readdir,odfs_iso_merge_multi_extent,udf_mount,udf_read_bytes
+PAGESHIFT_OK = cdfs_bytes_to_dev_blocks,iso_walk,iso_readlink,joliet_readdir,odfs_iso_merge_multi_extent,udf_mount,udf_read_bytes
 
 include $(KIT)/mk/module.mk
 

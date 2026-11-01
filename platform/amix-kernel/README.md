@@ -355,8 +355,8 @@ built against the toolchain sysroot's `sd.h` (`SDCARDS` 2), accepts 0–1.
 | `_load` | `vfs_register("cdfs", cdfsinit, &cdfs_vfsops, 0)` and nothing else: no I/O, no sleep, no allocation. `EEXIST` when the kernel already has a `cdfs` row (a static `cdfs`), `ENOSPC` when the spare rows are taken |
 | `_unload`, `_halt` | none: a filesystem module is pinned, and `cdfs` holds no device state between requests |
 | Imports | the module DDI only: `vfs_register`, `mod_miscops`, `sdqueue`, `sdopen`, `vn_rele`, `copyinstr`, `getudev`, `fs_nosys`, `fs_setfl`, `fs_frlock`, `fs_poll`, `fs_pathconf`, `fs_cmp`, `fs_rwlock`, `fs_rwunlock`, and the minor-0 names (`kmem_*`, `memcpy`, `strlen`, `strcmp`, `bcopy`, `cmn_err`, `sleep`, `wakeup`, `vtop`, `suser`, `uiomove`, `__udivdi3`, `__umoddi3`, `__lshrdi3`); plus the wrapper's weak `cdfs_conf_data` |
-| Image | 69 904 bytes allocated |
-| Version | [`module/VERSION`](module/VERSION), `1.1.0-2`, both lines (`1.0.0-1` was the boot-class module) |
+| Image | 73 048 bytes allocated |
+| Version | [`module/VERSION`](module/VERSION), `1.1.0-3`, both lines (`1.0.0-1` was the boot-class module) |
 
 **Class.** The module is **demand class** with `fs=cdfs`: it is not loaded at
 boot, but at the first `mount -F cdfs`. On a kabi 1.4 kernel the module core
@@ -383,12 +383,12 @@ clock stopped (it neither sleeps nor allocates; `cdfsinit` calls only
 
 **Memory at the first mount.** A demand-class load runs in process context,
 after multi-user, and the module core holds the whole load at once: the file
-buffer (the 99 152-byte file rounded up to 128 KiB), the section, symbol and
+buffer (the 103 061-byte file rounded up to 128 KiB), the section, symbol and
 string tables, the image and the module's symbol table. The kit's checker
-puts that at about 202 100 bytes and warns, since it is over 160 KiB, half of
+puts that at about 210 700 bytes and warns, since it is over 160 KiB, half of
 what a `k46` box gives a module in process context (about 320 KiB at 128 MB;
 `k30` gives about twice that). The buffer and tables are given back after the
-load; the 69 904-byte image stays.
+load; the 73 048-byte image stays.
 
 **Gates.** The kit's `modfix` and `modcheck.py`, then
 [`module/modgate.py`](module/modgate.py). Both objects pass. On `k46`,
