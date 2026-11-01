@@ -155,6 +155,19 @@ rm -f /usr/lib/fs/cdfs/umount
 | 1 | `mount(2)` failed — message on stderr with the errno |
 | 2 | usage error (fewer than 2 operands) |
 
+This is also the exit status of `mount -F cdfs`. The stock `/sbin/mount`
+(1991, 12 852 bytes) execs the helper in place: it imports `execv` and `exit`
+but no `fork` or `wait`, and it only prints and exits 1 when the `execv` itself
+fails. So a non-zero status from the helper is not lost by `mount(1M)`. A
+script that runs `mount` in the background and collects it with `wait $pid`
+can still see 0, because the Bourne shell may already have reaped a child that
+failed at once. To check the status on a box, mount twice and read the second
+status, which should be 1 (`errno 16`):
+
+```sh
+mount -F cdfs 0,5 /cdrom; mount -F cdfs 0,5 /cdrom; echo rc=$?; umount /cdrom
+```
+
 ### Reading the errno of a failed mount
 
 `mount(2)` returns an errno and nothing else, so the errno printed on status 1
