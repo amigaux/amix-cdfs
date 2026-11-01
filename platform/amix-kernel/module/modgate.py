@@ -47,6 +47,8 @@ def main(argv):
         sys.exit('usage: modgate.py KIT MODULE')
     kit, path = argv
     sys.path.insert(0, os.path.join(kit, 'tools'))
+    # no __pycache__ in the kit: its tools/ is pinned by the kit's manifest
+    sys.dont_write_bytecode = True
     import modcheck as mc
     e = mc.Elf(path)
     name = os.path.basename(path)

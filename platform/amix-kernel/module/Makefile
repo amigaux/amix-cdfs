@@ -79,7 +79,7 @@ Master: keys
 all: gate
 
 gate: $(MODOUT)/mod.d/$(MODULE)
-	python3 modgate.py $(KIT) $<
+	python3 -B modgate.py $(KIT) $<
 
 FORCE:
 .PHONY: gate FORCE
