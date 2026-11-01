@@ -412,25 +412,34 @@ static void iso_unmount(void *backend_ctx)
 /* readdir                                                             */
 /* ------------------------------------------------------------------ */
 
-static odfs_err_t iso_readdir(void *backend_ctx,
-                               odfs_cache_t *cache,
-                               odfs_log_state_t *log,
-                               const odfs_node_t *dir,
-                               odfs_dir_iter_fn callback,
-                               void *cb_ctx,
-                               uint32_t *resume_offset)
+/*
+ * The directory walk behind readdir and readdir_at. It starts parsing at
+ * `start` (0, or a record boundary an earlier walk reported) with empty
+ * name-collision state, and hands each entry at or after target_offset to
+ * `callback` (readdir) or `pos_cb` (readdir_at, with its position).
+ */
+static odfs_err_t iso_walk(void *backend_ctx,
+                           odfs_cache_t *cache,
+                           odfs_log_state_t *log,
+                           const odfs_node_t *dir,
+                           uint32_t start,
+                           uint32_t target_offset,
+                           odfs_dir_iter_fn callback,
+                           odfs_dir_pos_fn pos_cb,
+                           void *cb_ctx,
+                           uint32_t *resume_offset)
 {
     iso_context_t *ctx = backend_ctx;
     uint32_t dir_lba = dir->extent.lba;
     uint32_t dir_size = dir->extent.length;
-    uint32_t target_offset = (resume_offset && *resume_offset) ? *resume_offset : 0;
-    uint32_t offset = 0;
+    uint32_t offset = start;
     int lowercase = ctx->lowercase;
     odfs_namefix_state_t namefix;
     odfs_node_t *node;
 #if ODFS_FEATURE_ROCK_RIDGE
     rr_info_t *rr = NULL;
 #endif
+    unsigned int renames_before;
     odfs_err_t err = ODFS_OK;
 
     ODFS_TRACE(log, ODFS_SUB_ISO,
@@ -545,6 +554,7 @@ static odfs_err_t iso_readdir(void *backend_ctx,
             continue;
         }
 
+        renames_before = namefix.renames;
         err = odfs_namefix_apply(&namefix, node->name, sizeof(node->name));
         if (err != ODFS_OK)
             goto out;
@@ -556,7 +566,16 @@ static odfs_err_t iso_readdir(void *backend_ctx,
         if (entry_start < target_offset)
             continue;
 
-        err = callback(node, cb_ctx);
+        if (pos_cb) {
+            odfs_dir_pos_t pos;
+
+            pos.offset = entry_start;
+            pos.next = next_offset;
+            pos.renamed = namefix.renames != renames_before;
+            err = pos_cb(node, &pos, cb_ctx);
+        } else {
+            err = callback(node, cb_ctx);
+        }
         if (err != ODFS_OK) {
             /* callback stopped iteration — save resume point */
             if (resume_offset)
@@ -575,6 +594,32 @@ out:
     odfs_namefix_destroy(&namefix);
     odfs_free(node);
     return err;
+}
+
+static odfs_err_t iso_readdir(void *backend_ctx,
+                               odfs_cache_t *cache,
+                               odfs_log_state_t *log,
+                               const odfs_node_t *dir,
+                               odfs_dir_iter_fn callback,
+                               void *cb_ctx,
+                               uint32_t *resume_offset)
+{
+    uint32_t target_offset = (resume_offset && *resume_offset) ? *resume_offset : 0;
+
+    return iso_walk(backend_ctx, cache, log, dir, 0, target_offset,
+                    callback, NULL, cb_ctx, resume_offset);
+}
+
+static odfs_err_t iso_readdir_at(void *backend_ctx,
+                                 odfs_cache_t *cache,
+                                 odfs_log_state_t *log,
+                                 const odfs_node_t *dir,
+                                 uint32_t start,
+                                 odfs_dir_pos_fn callback,
+                                 void *cb_ctx)
+{
+    return iso_walk(backend_ctx, cache, log, dir, start, 0,
+                    NULL, callback, cb_ctx, NULL);
 }
 
 /* ------------------------------------------------------------------ */
@@ -1149,4 +1194,5 @@ const odfs_backend_ops_t iso9660_backend_ops = {
     .resolve_parent  = iso_resolve_parent,
     .get_volume_name = iso_get_volume_name,
     .get_volume_size = iso_get_volume_size,
+    .readdir_at      = iso_readdir_at,
 };

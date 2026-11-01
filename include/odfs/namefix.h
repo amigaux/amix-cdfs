@@ -28,6 +28,7 @@ typedef struct odfs_namefix_state {
     odfs_namefix_entry_t *head;
     odfs_namefix_entry_t *buckets[ODFS_NAMEFIX_BUCKETS];
     odfs_namefix_chunk_t *chunks;
+    unsigned int          renames;   /* names changed so far */
 } odfs_namefix_state_t;
 
 void odfs_namefix_init(odfs_namefix_state_t *state);

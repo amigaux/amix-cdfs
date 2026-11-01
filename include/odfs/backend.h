@@ -21,6 +21,17 @@ typedef struct odfs_mount odfs_mount_t;
 /* directory enumeration callback */
 typedef odfs_err_t (*odfs_dir_iter_fn)(const odfs_node_t *entry, void *ctx);
 
+/* where an entry sits in its directory, for readdir_at */
+typedef struct odfs_dir_pos {
+    uint32_t offset;    /* backend position where this entry starts */
+    uint32_t next;      /* backend position where the next scan starts */
+    int      renamed;   /* the name-collision rules changed this name */
+} odfs_dir_pos_t;
+
+typedef odfs_err_t (*odfs_dir_pos_fn)(const odfs_node_t *entry,
+                                      const odfs_dir_pos_t *pos,
+                                      void *ctx);
+
 /* backend operations vtable */
 typedef struct odfs_backend_ops {
     const char           *name;          /* e.g. "iso9660", "rock_ridge", "joliet" */
@@ -136,6 +147,25 @@ typedef struct odfs_backend_ops {
      * Get volume total size in 2048-byte logical media blocks. May be NULL.
      */
     uint32_t (*get_volume_size)(void *backend_ctx);
+
+    /*
+     * Enumerate a directory from a position, telling the callback where
+     * each entry sits. May be NULL.
+     *   start — 0, or an offset or next value an earlier call reported
+     *           for this directory.
+     * Name-collision handling starts empty at start: from 0 the names are
+     * exactly readdir's; from a later position they are readdir's only in
+     * a directory where no name was renamed (no pos.renamed on a walk
+     * from 0), which the caller must have established. The core uses this
+     * to index a directory too big to cache whole.
+     */
+    odfs_err_t (*readdir_at)(void *backend_ctx,
+                              odfs_cache_t *cache,
+                              odfs_log_state_t *log,
+                              const odfs_node_t *dir,
+                              uint32_t start,
+                              odfs_dir_pos_fn callback,
+                              void *cb_ctx);
 } odfs_backend_ops_t;
 
 const char *odfs_backend_type_name(odfs_backend_type_t type);

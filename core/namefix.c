@@ -34,6 +34,7 @@ void odfs_namefix_init(odfs_namefix_state_t *state)
     state->head = NULL;
     memset(state->buckets, 0, sizeof(state->buckets));
     state->chunks = NULL;
+    state->renames = 0;
 }
 
 void odfs_namefix_destroy(odfs_namefix_state_t *state)
@@ -184,8 +185,10 @@ odfs_err_t odfs_namefix_apply(odfs_namefix_state_t *state,
         memcpy(name + base_len, suffix, (size_t)suffix_len + 1);
 
         hash = odfs_namefix_hash(name);
-        if (!odfs_namefix_contains(state, name, hash))
+        if (!odfs_namefix_contains(state, name, hash)) {
+            state->renames++;
             return odfs_namefix_remember(state, name, hash);
+        }
     }
 
     return ODFS_ERR_OVERFLOW;
