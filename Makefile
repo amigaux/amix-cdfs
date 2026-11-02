@@ -764,20 +764,24 @@ AMIX_KERNEL_BUILD = build/amix-kernel
 
 # Two compat/ dirs precede the (stdint-less, memcpy-less) sysroot on the search
 # path: platform/amix-kernel/compat supplies the <string.h> interceptor that
-# routes memcpy/memset/memcmp/strlen to the cdfs-provided kstring.c bodies (the
-# SVR4 kernel exports only bcopy/bzero), and platform/amix/compat supplies the
+# declares memmove/memset/memcmp (bodies in kstring.c) and the kernel's own
+# memcpy/strlen/str*, and platform/amix/compat supplies the
 # <stdint.h>/<inttypes.h> shims forwarding to include/odfs/compat_stdint.h. The
 # amix-kernel one must come FIRST so its string.h wins over the sysroot's.
 AMIX_KERNEL_INCLUDES = -I platform/amix-kernel/compat -I platform/amix/compat \
                        -I include -I backends
-AMIX_KERNEL_DEFS     = -DODFS_PLATFORM_AMIX_KERNEL -D_KERNEL
+# No CDDA: the backend is driven by the AmigaOS handler, not by core/mount.c,
+# and the kernel media has no read_toc, so nothing in the kernel object calls
+# it. `ld -r` keeps unused code, so it is left out of the source list (8 KB
+# of text) and its flag is off.
+AMIX_KERNEL_DEFS     = -DODFS_PLATFORM_AMIX_KERNEL -D_KERNEL -DODFS_FEATURE_CDDA=0
 AMIX_KERNEL_CFLAGS   = -O2 $(AMIX_KERNEL_DEFS)
 
-# The portable core/backends plus the in-kernel SCSI media backend and the
-# vfsops/vnodeops/node-cache glue (cdfs_*.c) that makes the core mountable, plus
-# kstring.c (the freestanding memcpy/memset/memcmp/strlen the SVR4 kernel lacks)
-# and the bounded formatter.
-AMIX_KERNEL_LIB_SRCS = $(CORE_SRCS) \
+# The portable core/backends (without CDDA) plus the in-kernel SCSI media
+# backend and the vfsops/vnodeops/node-cache glue (cdfs_*.c) that makes the
+# core mountable, plus kstring.c (the freestanding memmove/memset/memcmp the
+# SVR4 kernel lacks) and the bounded formatter.
+AMIX_KERNEL_LIB_SRCS = $(filter-out backends/cdda/cdda.c,$(CORE_SRCS)) \
                        platform/amix-kernel/amix_kern_media.c \
                        platform/amix-kernel/cdfs_vfsops.c \
                        platform/amix-kernel/cdfs_vnodeops.c \
