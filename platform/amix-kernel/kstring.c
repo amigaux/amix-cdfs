@@ -12,7 +12,7 @@
  *
  * The kernel exports NEITHER memmove NOR memset, and its only memcmp lives in
  * netinet as a static/local symbol (no clash), so cdfs supplies exactly those
- * three here, layered on the kernel's bcopy where that is actually safe.
+ * three here, layered on the kernel's bcopy and bzero where that is safe.
  *
  * WHAT THE KERNEL'S bcopy REALLY IS — load-bearing for memmove below. bcopy is
  * NOT overlap-safe. It tail-jumps straight into mcpy, which copies strictly
@@ -39,6 +39,10 @@
 #if defined(ODFS_PLATFORM_AMIX_KERNEL)
 
 #include <sys/types.h>   /* size_t, caddr_t */
+
+/* memset's fill word: 32 bits on m68k and on the hosts the unit test runs
+ * on (tests/unit/test_kstring.c); emits nothing. */
+typedef char kstring_word_check[sizeof(unsigned int) == 4 ? 1 : -1];
 
 /* Kernel primitives, declared K&R (whatever the kernel provides). */
 extern void bcopy(/* caddr_t src, caddr_t dst, size_t n */);
@@ -96,34 +100,64 @@ void *memset(s, c, n)
 {
     unsigned char *p = (unsigned char *)s;
     unsigned char  v = (unsigned char)c;
-    size_t         i;
+    unsigned int  *q;
+    unsigned int   w;
+    size_t         words;
+
+    if (n == 0)
+        return s;
 
     /*
-     * One byte loop for every value of c, including 0.
+     * c == 0, which is nearly every call (the Rock Ridge parser clears a
+     * 1 184-byte rr_info_t per directory record, and GCC lowers struct
+     * zero-inits to memset): the kernel's own bzero, a DDI minor-0 name.
+     * It aligns the destination with a byte head, clears the body a long
+     * word at a time and finishes with a byte tail; its length test is
+     * signed, which no cdfs size comes near.
      *
-     * HISTORY, corrected — do not reintroduce the old claim. This loop was once
-     * justified by "the kernel's bzero does not reliably clear a large region":
-     * a ~1.1 KB rr_info_t cleared with memset kept garbage in its tail fields
-     * (is_relocated / has_child_link, both at offset > 1024), which made the ISO
-     * readdir treat every child as a Rock Ridge relocation and skip it — a
-     * directory that read as empty. That diagnosis was WRONG. The kernel's bzero
-     * disassembles as a perfectly correct clear (align the destination, byte-fill
-     * the head, long-word fill the body, byte-fill the tail). It does not skip
-     * tails. The real culprit was the Z3660 firmware's DMA cache-coherence bug —
-     * stale lines, not an unclear — and that is fixed (Z3660 0a4c064).
-     *
-     * The loop stays regardless, on its own merits: memset must fill with an
-     * ARBITRARY c, which bzero cannot do, so the general path has to exist
-     * anyway; and this is the exact code the current on-metal mount was proven
-     * with. Delegating the c == 0 case to bzero is now known to be safe and is a
-     * fair later optimization, but it would change a metal-proven path and is
-     * deliberately not taken here.
-     *
-     * -fno-builtin (Makefile per-object) stops GCC from recognizing the loop and
-     * emitting a memset self-call.
+     * HISTORY, corrected — do not reintroduce the old claim. This body was
+     * once a byte loop for every c, justified by "the kernel's bzero does not
+     * reliably clear a large region": a ~1.1 KB rr_info_t kept garbage in its
+     * tail fields (offset > 1024), which made the ISO readdir skip every
+     * child as a Rock Ridge relocation. That diagnosis was WRONG. bzero is a
+     * correct clear; the culprit was the Z3660 firmware's DMA cache-coherence
+     * bug — stale lines, not an unclear — fixed in Z3660 0a4c064.
      */
-    for (i = 0; i < n; i++)
-        p[i] = v;
+    if (v == 0) {
+        bzero((caddr_t)s, n);
+        return s;
+    }
+
+    /* Any other c: the same shape as bzero. Byte head up to a long-word
+     * boundary, long words (four per pass), byte tail. */
+    while (n != 0 && ((unsigned long)p & 3) != 0) {
+        *p++ = v;
+        n--;
+    }
+    if (n >= 4) {
+        w = v;
+        w |= w << 8;
+        w |= w << 16;
+        q = (unsigned int *)p;
+        words = n >> 2;
+        n &= 3;
+        while (words >= 4) {
+            *q++ = w;
+            *q++ = w;
+            *q++ = w;
+            *q++ = w;
+            words -= 4;
+        }
+        while (words != 0) {
+            *q++ = w;
+            words--;
+        }
+        p = (unsigned char *)q;
+    }
+    while (n != 0) {
+        *p++ = v;
+        n--;
+    }
     return s;
 }
 
