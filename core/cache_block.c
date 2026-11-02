@@ -16,7 +16,10 @@
  * sectors in one device request and install them all. Directory extents
  * and small sequential reads are contiguous, so this replaces N device
  * round trips with one. Only enabled for caches large enough that the
- * cluster cannot churn a meaningful share of the entries.
+ * cluster cannot churn a meaningful share of the entries, and only when
+ * ODFS_FEATURE_CACHE_STREAM is on (odfs/config.h): a platform whose media
+ * splits every request into one-sector transfers gains nothing from it and
+ * turns it off, which also drops the staging buffer.
  */
 #define ODFS_CACHE_READAHEAD 8u
 
@@ -324,12 +327,14 @@ odfs_err_t odfs_cache_init(odfs_cache_t *cache,
     cache->clock = 0;
     cache->media = media;
     cache->stream_buf = NULL;
+#if ODFS_FEATURE_CACHE_STREAM
     if (capacity >= 4u * ODFS_CACHE_READAHEAD) {
         /* optional: read-ahead is skipped when this allocation fails.
          * Sector-aligned for the same DMA reason as the slab above. */
         cache->stream_buf = odfs_malloc_aligned((size_t)ODFS_CACHE_READAHEAD *
                                                 sector_size, sector_size);
     }
+#endif
     cache_reset_indices(cache);
 
     return ODFS_OK;
@@ -371,6 +376,7 @@ void odfs_cache_flush(odfs_cache_t *cache)
     cache_reset_indices(cache);
 }
 
+#if ODFS_FEATURE_CACHE_STREAM
 /* place one sector's data into a victim entry and index it */
 static int32_t cache_install(odfs_cache_t *cache, uint32_t lba,
                              const uint8_t *src)
@@ -414,6 +420,7 @@ static int32_t cache_install(odfs_cache_t *cache, uint32_t lba,
 
     return (int32_t)victim;
 }
+#endif /* ODFS_FEATURE_CACHE_STREAM */
 
 odfs_err_t odfs_cache_read(odfs_cache_t *cache,
                              uint32_t lba,
@@ -442,6 +449,7 @@ odfs_err_t odfs_cache_read(odfs_cache_t *cache,
     /* miss — find victim (LRU or first invalid) */
     cache->stats.misses++;
 
+#if ODFS_FEATURE_CACHE_STREAM
     /* Cluster only sequential miss patterns (directory scans, small
      * sequential reads); random misses would fetch data that is
      * evicted unused while paying for the larger transfer. */
@@ -477,6 +485,7 @@ odfs_err_t odfs_cache_read(odfs_cache_t *cache,
         /* short run, media error (e.g. the run crosses the end of the
          * disc), or install failure: fall back to a single sector */
     }
+#endif /* ODFS_FEATURE_CACHE_STREAM */
 
     cache->last_miss_lba = lba;
 

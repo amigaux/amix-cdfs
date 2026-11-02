@@ -94,8 +94,13 @@
     #define ODFS_FEATURE_CACHE_META   1
   #endif
 #endif
+/* block-cache read-ahead: clustered miss reads through a staging buffer
+ * (core/cache_block.c) */
 #ifndef ODFS_FEATURE_CACHE_STREAM
   #ifdef ODFS_PROFILE_ROM
+    #define ODFS_FEATURE_CACHE_STREAM 0
+  #elif defined(ODFS_PLATFORM_AMIX_KERNEL)
+    /* off: see the AMIX in-kernel arm below */
     #define ODFS_FEATURE_CACHE_STREAM 0
   #else
     #define ODFS_FEATURE_CACHE_STREAM 1
@@ -195,6 +200,12 @@
   #ifndef ODFS_CACHE_SLAB_FALLBACK
     #define ODFS_CACHE_SLAB_FALLBACK 0
   #endif
+  /*
+   * ODFS_FEATURE_CACHE_STREAM is 0 here (set in the cache flags above,
+   * which come first): the kernel media sends one sector per SCSI command,
+   * so an 8-sector read-ahead is eight commands either way, and its
+   * staging buffer would be one more oversize kmem request per mount.
+   */
 #endif
 
 /* host builds for testing */
