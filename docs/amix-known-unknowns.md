@@ -175,11 +175,11 @@ remaining call sites still linked into `build/amix-kernel/libcdfskern.o` —
 |---|---|---|
 | `odfs_iso_merge_multi_extent` | `__udivdi3`, `__umoddi3` | multi-extent ISO files only |
 | `udf_get_volume_size` | `__udivdi3` | UDF mount |
-| `cdda_get_volume_size` | `__udivdi3` | audio disc |
 | `hfs_probe`, `hfs_mount`, `hfs_read_node`, `hfs_get_volume_size` | `__udivdi3`, `__umoddi3` | HFS |
 | `hfsp_mount`, `hfsp_read_fork`, `hfsp_get_volume_size` | `__udivdi3`, `__umoddi3` | HFS+ |
 
-— remain **unexercised end-to-end on metal**, so HFS / HFS+ / UDF probing is still
+— remain **unexercised end-to-end on metal** (`cdda_get_volume_size` is no
+longer among them: since module 1.1.0-5 the kernel build leaves CDDA out), so HFS / HFS+ / UDF probing is still
 *unproven* as whole paths. But the specific failure mode that opened this entry is
 **closed**: the underlying `__udivdi3` / `__umoddi3` helpers are now **metal-proven
 correct** on this machine (see the userland exerciser above), so "unproven" no longer

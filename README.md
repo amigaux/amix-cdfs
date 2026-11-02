@@ -487,13 +487,15 @@ full: why SVR4 cannot mount anything without it, what it writes to
 
 - Read-only, as on every other target.
 - **ISO 9660 with Rock Ridge** is the path proven end to end on real hardware
-  (A4000 + Z3660). High Sierra, Joliet, UDF, HFS, HFS+ and CDDA are compiled
-  into both AMIX arms but have not been exercised end to end there — see
-  [docs/amix-known-unknowns.md](docs/amix-known-unknowns.md).
-- The in-kernel SCSI backend caps every transfer at **one 2048-byte sector**.
-  Multi-sector requests came back as garbage on the bench HBA, so the backend
-  splits each read into single-block SCSI commands. Correct, but slower than the
-  hardware allows.
+  (A4000 + Z3660). High Sierra, Joliet, UDF, HFS and HFS+ are compiled into
+  both AMIX arms but have not been exercised end to end there — see
+  [docs/amix-known-unknowns.md](docs/amix-known-unknowns.md). CDDA is in the
+  userspace arm only; the kernel build leaves it out.
+- The in-kernel SCSI backend caps every transfer at **one 2048-byte sector**:
+  a transfer must stay inside one physical page, because kernel memory is
+  physically scattered and a SCSI command carries one physical address. The
+  backend splits each read into single-sector commands and has no block-cache
+  read-ahead. Correct, but slower than the hardware allows.
 - Neither AMIX arm is built in CI — no cross toolchain is available there. They
   are validated out of band; see [docs/testing.md](docs/testing.md).
 

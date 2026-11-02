@@ -13,17 +13,17 @@ backends the cross-built tools use — is next door in
 
 | File | Lines | What it is |
 |---|---:|---|
-| [`cdfs_vfsops.c`](cdfs_vfsops.c) | 565 | The `struct vfsops` vector: mount, unmount, root, statvfs, sync, vget, mountroot, swapvp — plus `cdfsinit()` |
-| [`cdfs_vnodeops.c`](cdfs_vnodeops.c) | 543 | The 37-slot `struct vnodeops` vector: open/read/readdir/lookup/getattr/readlink/… |
-| [`cdfs_node.c`](cdfs_node.c) | 241 | The per-mount vnode object cache, and the `odfs_err_t` → errno table |
+| [`cdfs_vfsops.c`](cdfs_vfsops.c) | 566 | The `struct vfsops` vector: mount, unmount, root, statvfs, sync, vget, mountroot, swapvp — plus `cdfsinit()` |
+| [`cdfs_vnodeops.c`](cdfs_vnodeops.c) | 564 | The 37-slot `struct vnodeops` vector: open/read/readdir/lookup/getattr/readlink/… |
+| [`cdfs_node.c`](cdfs_node.c) | 246 | The per-mount vnode object cache, and the `odfs_err_t` → errno table |
 | [`amix_kern_media.c`](amix_kern_media.c) | 524 | In-kernel SCSI media backend: `struct sdcom` + `sdqueue()` + sleep |
-| [`kstring.c`](kstring.c) | 168 | The `memmove`/`memset`/`memcmp` the SVR4 kernel does not export (and the module form's `strncpy`) |
+| [`kstring.c`](kstring.c) | 202 | The `memmove`/`memset`/`memcmp` the SVR4 kernel does not export (and the module form's `strncpy`) |
 | [`cdfs.h`](cdfs.h) | 134 | `struct cdfs_vfs`, `struct cdfsnode`, the shared declarations |
-| [`cdfs_blocks.h`](cdfs_blocks.h) | 103 | `st_blocks` arithmetic, factored out so the host test suite can cover it |
+| [`cdfs_blocks.h`](cdfs_blocks.h) | 95 | `st_blocks` arithmetic, factored out so the host test suite can cover it |
 | [`compat/string.h`](compat/string.h) | 77 | `<string.h>` interceptor for the kernel build |
 | [`amix_kern_media.h`](amix_kern_media.h) | 42 | The one entry point `cdfs_mount()` calls |
 | [`cdfs_mod.c`](cdfs_mod.c) | 44 | Loadable module only: the module wrapper and `_load` |
-| [`cdfs_modlocal.c`](cdfs_modlocal.c) | 100 | Loadable module only: its `cdfsinit(row, index)` and mounted-drive table |
+| [`cdfs_modlocal.c`](cdfs_modlocal.c) | 101 | Loadable module only: its `cdfsinit(row, index)` and mounted-drive table |
 | [`cdfs_mod.h`](cdfs_mod.h) | 40 | Loadable module only: the names above |
 | [`module/`](module/) | | Loadable module only: its build (Makefile, keys, VERSION), gate and host test |
 
@@ -264,6 +264,11 @@ aggregate struct copies and zero-inits — such as `cnp->node = *n;`, where the
 operand is a several-hundred-byte `odfs_node_t` — to direct `memcpy`/`memset` calls at
 codegen time, which no macro can rewrite.
 
+`memset` hands `c == 0` — nearly every call, such as the Rock Ridge parser's
+1 184-byte clear per directory record and GCC's lowered struct zero-inits — to
+the kernel's `bzero` (a DDI minor-0 name), and fills any other value a long
+word at a time with a byte head and tail, as `bzero` does.
+
 `memmove` is implemented by hand rather than delegated blindly to `bcopy`,
 because **`bcopy` is not overlap-safe**: it tail-jumps into `mcpy`, which copies
 strictly ascending, and the kernel's `memcpy` is merely a second entry point
@@ -354,9 +359,9 @@ built against the toolchain sysroot's `sd.h` (`SDCARDS` 2), accepts 0–1.
 | Wrapper | `MOD_MISC_WRAPPER(cdfs, cdfs_load, 0, …)` (`$modtype misc`): no switch-table row |
 | `_load` | `vfs_register("cdfs", cdfsinit, &cdfs_vfsops, 0)` and nothing else: no I/O, no sleep, no allocation. `EEXIST` when the kernel already has a `cdfs` row (a static `cdfs`), `ENOSPC` when the spare rows are taken |
 | `_unload`, `_halt` | none: a filesystem module is pinned, and `cdfs` holds no device state between requests |
-| Imports | the module DDI only: `vfs_register`, `mod_miscops`, `sdqueue`, `sdopen`, `vn_rele`, `copyinstr`, `getudev`, `fs_nosys`, `fs_setfl`, `fs_frlock`, `fs_poll`, `fs_pathconf`, `fs_cmp`, `fs_rwlock`, `fs_rwunlock`, and the minor-0 names (`kmem_*`, `memcpy`, `strlen`, `strcmp`, `bcopy`, `cmn_err`, `sleep`, `wakeup`, `vtop`, `suser`, `uiomove`, `__udivdi3`, `__umoddi3`, `__lshrdi3`); plus the wrapper's weak `cdfs_conf_data` |
-| Image | 73 144 bytes allocated |
-| Version | [`module/VERSION`](module/VERSION), `1.1.0-4`, both lines (`1.0.0-1` was the boot-class module) |
+| Imports | the module DDI only: `vfs_register`, `mod_miscops`, `sdqueue`, `sdopen`, `vn_rele`, `copyinstr`, `getudev`, `fs_nosys`, `fs_setfl`, `fs_frlock`, `fs_poll`, `fs_pathconf`, `fs_cmp`, `fs_rwlock`, `fs_rwunlock`, and the minor-0 names (`kmem_*`, `memcpy`, `strlen`, `strcmp`, `bcopy`, `bzero`, `cmn_err`, `sleep`, `wakeup`, `vtop`, `suser`, `uiomove`, `__udivdi3`, `__umoddi3`, `__lshrdi3`); plus the wrapper's weak `cdfs_conf_data` |
+| Image | 64 600 bytes allocated |
+| Version | [`module/VERSION`](module/VERSION), `1.1.0-5`, both lines (`1.0.0-1` was the boot-class module) |
 
 **Class.** The module is **demand class** with `fs=cdfs`: it is not loaded at
 boot, but at the first `mount -F cdfs`. On a kabi 1.4 kernel the module core
@@ -383,12 +388,12 @@ clock stopped (it neither sleeps nor allocates; `cdfsinit` calls only
 
 **Memory at the first mount.** A demand-class load runs in process context,
 after multi-user, and the module core holds the whole load at once: the file
-buffer (the 103 209-byte file rounded up to 128 KiB), the section, symbol and
+buffer (the 90 959-byte file rounded up to 128 KiB), the section, symbol and
 string tables, the image and the module's symbol table. The kit's checker
-puts that at about 211 100 bytes and warns, since it is over 160 KiB, half of
+puts that at about 186 600 bytes and warns, since it is over 160 KiB, half of
 what a `k46` box gives a module in process context (about 320 KiB at 128 MB;
 `k30` gives about twice that). The buffer and tables are given back after the
-load; the 73 144-byte image stays.
+load; the 64 600-byte image stays.
 
 **Gates.** The kit's `modfix` and `modcheck.py`, then
 [`module/modgate.py`](module/modgate.py). Both objects pass. On `k46`,
@@ -437,15 +442,26 @@ static object has run on both.
 - **Read-only**, by construction. `vfs_mountroot` returns `EROFS` and
   `vfs_swapvp` returns `EINVAL`: `cdfs` can be neither the root filesystem nor
   a swap device.
-- **One 2048-byte sector per SCSI transfer.** Multi-sector requests came back as
-  garbage on the bench HBA — the block cache's 8-sector read-ahead returned
-  kernel text and then wedged the box — which is the signature of a DMA
-  bounce/contiguity limit on that board. `read_sectors()` splits every request
-  into single-block commands. Raise `AMIX_KERN_MAX_XFER` only once the HBA's DMA
-  limit is known good.
+- **One 2048-byte sector per SCSI transfer.** An `sdcom` carries one physical
+  address and kmem memory is physically scattered, so a transfer must stay
+  inside one DMA page (`amix_kern_submit` refuses one that crosses); a
+  sector-aligned 2048-byte target is the largest that fits on both lines.
+  `read_sectors()` splits every request into single-sector commands. This is
+  not an HBA limit: the multi-sector garbage once seen (an 8-sector read-ahead
+  that returned kernel text, then wedged the box) was the same run-on into the
+  next physical page, from before the page check. Larger transfers need
+  physically contiguous buffers or one command per page, not a larger
+  `AMIX_KERN_MAX_XFER`.
+- **No block-cache read-ahead.** With one sector per command, an 8-sector
+  read-ahead is eight commands either way, so the kernel build has
+  `ODFS_FEATURE_CACHE_STREAM` 0 (`include/odfs/config.h`) and allocates no
+  staging buffer: one 18 444-byte oversize request (5 kernel-map pages of
+  4 KiB, 10 of 2 KiB) less per mount.
 - **ISO 9660 with Rock Ridge is the metal-proven path.** Every backend in
-  `CORE_SRCS` compiles into the module, but High Sierra, Joliet, UDF, HFS, HFS+
-  and CDDA have not been exercised end to end on hardware — see
+  `CORE_SRCS` but CDDA compiles into the module (CDDA is driven by the AmigaOS
+  handler; the kernel build leaves it out, `ODFS_FEATURE_CDDA` 0). High
+  Sierra, Joliet, UDF, HFS and HFS+ have not been exercised end to end on
+  hardware — see
   [`docs/amix-known-unknowns.md`](../../docs/amix-known-unknowns.md).
 - **Large directories.** The core keeps each directory that fits its 96 KiB
   metadata budget whole in memory. An ISO 9660 or Rock Ridge directory too big
@@ -465,5 +481,6 @@ static object has run on both.
 - **Not built in CI** — no cross toolchain is available there. See
   [`docs/testing.md`](../../docs/testing.md). On the host, `make check` covers
   `cdfs_blocks.h`, which was factored out of `cdfs_vnodeops.c` precisely so its
-  arithmetic could be tested off-metal (`tests/unit/test_cdfs_blocks.c`), and a
-  model of the read path (`tests/unit/test_read_span.c`).
+  arithmetic could be tested off-metal (`tests/unit/test_cdfs_blocks.c`), a
+  model of the read path (`tests/unit/test_read_span.c`), and `kstring.c`
+  against the C library (`tests/unit/test_kstring.c`).

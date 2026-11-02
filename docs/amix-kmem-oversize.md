@@ -61,7 +61,7 @@ pool).
 | Allocation | kmem request (bytes) | Pages (4 KiB / 2 KiB) | Lifetime | Freed |
 |---|---|---|---|---|
 | block-cache slab, 128 × 2048, sector-aligned (`cache_block.c`) | **264 204** | **65 / 130** | mount | `odfs_cache_destroy` ← `odfs_unmount`, and on every `odfs_mount` failure |
-| read-ahead `stream_buf`, 8 × 2048, aligned | 18 444 | 5 / 10 | mount | same |
+| read-ahead `stream_buf`, 8 × 2048, aligned (gone since module 1.1.0-5, below) | 18 444 | 5 / 10 | mount | same |
 | `struct cdfs_vfs` (`kmem_zalloc`, no header) | 6 648 | 2 / 4 | mount | `cdfs_unmount`, and all three `cdfs_mount` failure exits |
 | parsed-dir blob (`cache_meta.c`), 48 + 72·n + names | r6d: largest 4 899 (62 entries); total 15 541 over 20 dirs | 2 / 3 for the largest | mount (LRU) | `odfs_meta_cache_destroy`; capped by the 96 KiB budget |
 | cache entries / buckets / chain | 3 080 / 1 036 / 520 | — | mount | `odfs_cache_destroy` |
@@ -173,6 +173,13 @@ until reboot.
 - A namefix chunk is a 4096-byte request, not 4116 (two oversize pages).
 - The directory cache grows only up to its budget, and a directory that does
   not fit is remembered, not rebuilt on every `getdents` and lookup.
+- No read-ahead in the kernel arm (`ODFS_FEATURE_CACHE_STREAM` 0, module
+  1.1.0-5): with one sector per SCSI command it saved no commands, so the
+  18 444-byte `stream_buf` (5 / 10 pages) is no longer allocated per mount.
+  `kmprof test_rr.iso 2 32` (host model, CDDA and read-ahead off): after
+  mount 6 live allocations and 17 oversize pages, down from 7 and 22; peak
+  19 oversize pages, down from 24; the largest request is still the
+  67 596-byte slab.
 
 ## 5. Reproducer on the box
 
