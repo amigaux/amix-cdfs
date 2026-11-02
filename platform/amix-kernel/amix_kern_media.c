@@ -27,11 +27,11 @@
  * transcribed. Those headers are included LAST because rico.h defines
  * aggressive short-name macros (bool/uint/uchar/and/or/not/...).
  *
- * PROVIDER-FOUNDATION SCOPE: this file must COMPILE and LINK as part of the
- * relocatable kernel object. sdqueue()/vtop()/sleep()/wakeup() stay undefined
- * externs resolved at the final kernel link; spl0/spl2 (sdspl) inline from
- * <sys/inline.h>, so they emit no external symbol at all. The transport is not
- * exercised until the on-box bench.
+ * sdqueue()/vtop()/sleep()/wakeup() stay undefined externs, resolved at the
+ * final kernel link (or, in the module form, against the kernel's symbol
+ * block); spl0/spl2 (sdspl) inline from <sys/inline.h>, so they emit no
+ * external symbol at all. The transport is the one every metal mount has run
+ * on since the static object first mounted a disc.
  *
  * Written in C89 for the period AMIX cross compiler (GCC 2.7.2.3):
  * declarations at block scope, no C99 for-init, no mixed declarations.
@@ -69,17 +69,17 @@
  * Per-request transfer cap, in BYTES. read_sectors chunks the requested
  * range so no single sdcom exceeds this.
  *
- * ONE SECTOR (2048). Hardware evidence: single-sector reads are correct (the PVD,
- * every mount read, and a direct cache-bypassing read all return good data), but a
- * multi-sector request — the block cache's read-ahead issues an 8-sector
- * (16 KB) DMA into one buffer, and file reads stream multiple sectors — comes
- * back as GARBAGE (the returned buffer held kernel text) and then wedges the
- * box. That is the signature of the SCSI HBA's DMA not spanning a transfer
- * larger than a single 2048-byte block here (a bounce/contiguity limit; this
- * board is the one that needed the a4091 super-DMAC bounce). Capping to one
- * sector keeps every DMA on the proven-good single-block path; the portable
- * core may still request many sectors — read_sectors just splits them into
- * one-block sdcoms. Raise this only once the HBA DMA limit is known good.
+ * ONE SECTOR (2048), because a transfer must stay inside one DMA page (the
+ * check in amix_kern_submit): an sdcom carries one physical address, vtop()
+ * translates one page, and kmem memory is virtually contiguous but physically
+ * scattered, so a longer transfer would run on into an unrelated physical
+ * page. A sector-aligned 2048-byte target is the largest that fits a page on
+ * both lines. It is not an HBA limit: the multi-sector garbage once seen here
+ * (an 8-sector read-ahead DMA that came back holding kernel text, then wedged
+ * the box) was that same run-on, from before the page check existed. The
+ * portable core may still request many sectors; read_sectors splits them into
+ * one-sector sdcoms. A larger cap needs physically contiguous buffers or one
+ * sdcom per page, not a different number here.
  */
 #define AMIX_KERN_MAX_XFER AMIX_KERN_CD_SECTOR_SIZE
 

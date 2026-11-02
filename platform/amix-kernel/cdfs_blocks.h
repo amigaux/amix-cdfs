@@ -34,30 +34,22 @@
  * that is NOT strength-reduced to a shift: it emits an out-of-line call to
  * __udivdi3.
  *
- * OBSERVED on metal (2026-07-19): that call returns an internal intermediate of
- * libgcc __udivdi3's normalization step instead of the quotient. The returned
- * value fits `(size + 2047) << 4` exactly across four independent data points
- * (two files, two directory totals) — which is `(n0 << bm) >> 16` for the
- * routine's own bm=20, i.e. its partial remainder. This part is solid evidence.
+ * OBSERVED on metal (2026-07-19): that call returned an internal intermediate
+ * of libgcc __udivdi3's normalization step instead of the quotient. The
+ * returned value fit `(size + 2047) << 4` exactly across four independent data
+ * points (two files, two directory totals) — which is `(n0 << bm) >> 16` for
+ * the routine's own bm=20, i.e. its partial remainder.
  *
- * NOT ESTABLISHED: why. The symbol is NOT missing or unresolved — `nm
- * /stand/unix` on metal shows __udivdi3 linked as a GLOB FUNC at a sane text
- * address with the right size, alongside __umoddi3, __lshrdi3 and the two
- * (legitimately LOCL, per-object) copies of __clz_tab it depends on. So the
- * mechanism is something other than a bad link-time binding, and as of
- * 2026-07-19 it remains UNIDENTIFIED. Do not let a guess harden into fact here.
+ * RESOLVED (2026-07-21): an assembler encoding bug in the cross toolchain's
+ * libgcc. GNU as 2.8.1 assembled the 32-bit-dividend divide-with-remainder
+ * form as the 64-bit-dividend form, so every divide in the DImode helpers
+ * (__udivdi3, __umoddi3, __divdi3, __moddi3, __udivmoddi4) read a stale high
+ * half and overflowed. Fixed in gcc-cross-amix 984192a and libgcc rebuilt;
+ * the full record is §1 of docs/amix-known-unknowns.md.
  *
- * The mitigation is correct regardless of the mechanism: va_nblocks is 32-bit,
- * so this arithmetic never needed 64 bits in the first place. Shift, don't
- * divide — a 32-bit `>>` is inline m68k code and calls nothing. That is why
- * everything else in cdfs_getattr was right: no other field needs 64-bit soft
- * arithmetic. (`__lshrdi3`, the 64-bit shift helper used by the read path in
- * odfs_cache_read_bytes(), is a different symbol, is empirically correct on
- * metal, and is NOT implicated.)
- *
- * Other call sites that still perform 64-bit division, and would return wrong
- * values IF the misbehaviour turns out to be general, are catalogued in
- * docs/amix-known-unknowns.md.
+ * The shift stays on its own merits: va_nblocks is 32-bit, so this arithmetic
+ * never needed 64 bits in the first place. A 32-bit `>>` is inline m68k code
+ * and calls nothing.
  *
  * SPDX-License-Identifier: BSD-2-Clause
  */

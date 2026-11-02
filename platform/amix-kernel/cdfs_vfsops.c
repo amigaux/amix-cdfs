@@ -186,12 +186,13 @@ static dev_t cdfs_makedev(unsigned int card, unsigned int unit)
 /*
  * Block-cache size per mount. The core default (ODFS_BLOCK_CACHE_SIZE, 128)
  * makes the slab one 264 204-byte kmem request = 65 contiguous 4 KiB sptmap
- * pages, which a fragmented sptmap cannot always supply (stock kmem then
- * sleeps forever on Km_OsizeWanted). 32 blocks = 67 596 bytes = 17 pages and
- * keeps read-ahead (it needs >= 32). File reads bypass the block cache for
- * whole aligned sectors, so the smaller cache costs little. If even the slab
- * fails, odfs_cache_init falls back to one aligned buffer per entry (32 x 2
- * pages, non-contiguous). See docs/amix-kmem-oversize.md.
+ * pages, which a fragmented sptmap cannot always supply. 32 blocks = 67 596
+ * bytes = 17 pages. File reads bypass the block cache for whole aligned
+ * sectors, so the smaller cache costs little. The kernel arm has no
+ * read-ahead (ODFS_FEATURE_CACHE_STREAM 0, odfs/config.h), so the size is
+ * not tied to its 32-block minimum. If the slab cannot be had, the mount
+ * fails with ENOMEM: there is no per-entry fallback in the kernel arm
+ * (ODFS_CACHE_SLAB_FALLBACK 0, since d423a00). See docs/amix-kmem-oversize.md.
  */
 #define CDFS_CACHE_BLOCKS 32U
 

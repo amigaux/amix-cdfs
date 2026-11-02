@@ -9,8 +9,8 @@
  * and frees it. This mirrors the SVR4 s5 in-core inode idiom, minus the
  * reuse-freelist: a read-only optical volume never dirties a node.
  *
- * v1 is single-threaded with respect to this hash (no bucket locking); the
- * on-box bench is a later step and SMP hardening with it.
+ * v1 is single-threaded with respect to this hash (no bucket locking); SMP
+ * hardening is a later step.
  *
  * C89-clean for the period cross compiler (GCC 2.7.2.3).
  *
